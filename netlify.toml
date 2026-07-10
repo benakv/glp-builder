@@ -1,0 +1,3 @@
+# GLP Builder — static site, no build step
+[build]
+  publish = "."
