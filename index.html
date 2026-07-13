@@ -21,16 +21,16 @@
 const { useState, useMemo, useEffect, useRef, useCallback } = React;
 
 /* ============================================================
-   GLP Builder v3 — visual editor for ReadMe Enterprise
+   GLP Builder v4 — visual editor for ReadMe Enterprise
    Global Landing Pages.
 
-   New in v3:
-   - Liquid mode: cards auto-generate from the group's child
-     projects via ReadMe's Liquid templating (parentProject.childrenProjects)
-   - Shareable links: config is encoded into the URL hash
-   - 7 templates, modeled on ReadMe's official GLP examples
-     (glp-rr-group-1…7.readme.io) + docs.dlocal.com
-   - Announcement ticker + hero version chip
+   New in v4:
+   - Templates removed → fully granular per-card style switches
+   - Multiple card sections, each with its own heading, intro,
+     alignment, card style, grid, and card source
+   - Font Awesome icons on cards (alongside emoji)
+   - Three search placements: native / centered-in-header / under-hero
+   - Optional header background image (between header + subnav)
    ============================================================ */
 
 /* ---------------- accent presets (light / dark pairs) ---------------- */
@@ -83,35 +83,48 @@ const FONTS = {
   },
 };
 
-/* ---------------- templates ----------------
-   anchor : whole card is an <a> (else <div> + CTA <a>)
-   peek   : list section available
-   cta    : CTA button/link shown
-   ctaPlain: CTA is a plain text link (style control hidden)
-   badge  : eyebrow pill w/ dot|lock available
-   icon   : emoji icon tile
-   num    : auto-numbered (01, 02, …)
-   file   : File_0N label (terminal style)
-   bar    : 3px accent top bar
------------------------------------------------- */
-const TSPEC = {
-  audience: { anchor: true, peek: true, cta: true, badge: true, icon: false, num: false, file: false, bar: true, radius: 16 },
-  solutions: { anchor: false, peek: true, cta: true, badge: false, icon: true, num: false, file: false, bar: true, radius: 16 },
-  launchpad: { anchor: false, peek: true, cta: true, badge: false, icon: false, num: true, file: false, bar: true, radius: 16 },
-  bento: { anchor: false, peek: true, cta: true, badge: false, icon: true, num: false, file: false, bar: true, radius: 16 },
-  helpcenter: { anchor: true, peek: false, cta: false, badge: false, icon: false, num: false, file: false, bar: false, radius: 12 },
-  tiles: { anchor: true, peek: false, cta: false, badge: true, icon: false, num: false, file: false, bar: true, radius: 16 },
-  archive: { anchor: true, peek: false, cta: true, ctaPlain: true, badge: false, icon: false, num: false, file: true, bar: true, radius: 4 },
+/* ---------------- granular card style ----------------
+   Every card look is composed from these switches instead of
+   a fixed template. Feature flags control markup emission;
+   density/radius/mono drive scalar CSS via per-section vars.
+
+   anchor  : whole card is an <a> (else <div> + CTA <a>)
+   icon    : icon tile (emoji or Font Awesome)
+   badge   : eyebrow pill w/ dot|lock
+   num     : auto-numbered (01, 02, …)
+   file    : File_0N label (terminal style)
+   bar     : 3px accent top bar
+   peek    : preview list section
+   cta     : CTA button/link shown
+   ctaPlain: CTA is a plain text link
+   mono    : mono, uppercase titles (terminal aesthetic)
+   radius  : corner radius (px)
+   density : roomy | comfortable | compact (padding + title size)
+------------------------------------------------------ */
+const DEFAULT_STYLE = {
+  anchor: true,
+  icon: false,
+  badge: true,
+  num: false,
+  file: false,
+  bar: true,
+  peek: true,
+  cta: true,
+  ctaPlain: false,
+  mono: false,
+  radius: 16,
+  density: "roomy",
 };
 
-const TEMPLATES = {
-  audience: { label: "Audience Split", hint: "Tall gated/open cards with previews" },
-  solutions: { label: "Solutions Grid", hint: "dLocal-style hero, icons & banner" },
-  launchpad: { label: "Launchpad", hint: "Marketing hero + numbered features" },
-  bento: { label: "Bento", hint: "Asymmetric mixed-size card grid" },
-  helpcenter: { label: "Help Center", hint: "Dense support-portal category grid" },
-  tiles: { label: "Quick Links", hint: "Compact tiles for many projects" },
-  archive: { label: "Terminal Archive", hint: "Mono, brutalist File_01 folders" },
+/* old template → granular style, used only when migrating saved configs */
+const TEMPLATE_TO_STYLE = {
+  audience:   { anchor: true,  icon: false, badge: true,  num: false, file: false, bar: true,  peek: true,  cta: true,  ctaPlain: false, mono: false, radius: 16, density: "roomy" },
+  solutions:  { anchor: false, icon: true,  badge: false, num: false, file: false, bar: true,  peek: true,  cta: true,  ctaPlain: false, mono: false, radius: 16, density: "comfortable" },
+  launchpad:  { anchor: false, icon: false, badge: false, num: true,  file: false, bar: true,  peek: true,  cta: true,  ctaPlain: false, mono: false, radius: 16, density: "comfortable" },
+  bento:      { anchor: false, icon: true,  badge: false, num: false, file: false, bar: true,  peek: true,  cta: true,  ctaPlain: false, mono: false, radius: 16, density: "comfortable" },
+  helpcenter: { anchor: true,  icon: false, badge: false, num: false, file: false, bar: false, peek: false, cta: false, ctaPlain: false, mono: false, radius: 12, density: "compact" },
+  tiles:      { anchor: true,  icon: false, badge: true,  num: false, file: false, bar: true,  peek: false, cta: false, ctaPlain: false, mono: false, radius: 16, density: "compact" },
+  archive:    { anchor: true,  icon: false, badge: false, num: false, file: true,  bar: true,  peek: false, cta: true,  ctaPlain: true,  mono: true,  radius: 4,  density: "comfortable" },
 };
 
 const LOCK_SVG =
@@ -122,6 +135,8 @@ const uid = () => "c" + _uid++;
 
 const CARD_DEFAULTS = {
   icon: "📘",
+  iconType: "emoji",
+  faStyle: "solid",
   title: "New audience",
   blurb: "Describe who this documentation is for.",
   href: "/project-slug",
@@ -138,9 +153,25 @@ const CARD_DEFAULTS = {
   primary: false,
 };
 
+const DEFAULT_LIQUID = {
+  eyebrow: "Documentation",
+  badge: "dot",
+  icon: "📘",
+  iconType: "emoji",
+  faStyle: "solid",
+  blurbFallback: "Explore the guides and API reference for this project.",
+  peek: true,
+  peekLabel: "Inside",
+  peekCount: 3,
+  ctaText: "View docs",
+  ctaStyle: "ghost",
+  accents: ["green", "purple", "amber"],
+};
+
+const DEFAULT_SECTION_LAYOUT = { colMin: 258, gap: 20, autoH: false, cardMinH: 396, bento: false };
+
 /* ---------------- default config = Benak's v3 page ---------------- */
 const DEFAULT_CONFIG = {
-  template: "audience",
   fonts: "grotesk",
   hero: {
     eyebrow: "",
@@ -154,10 +185,10 @@ const DEFAULT_CONFIG = {
     btnSecondary: { label: "API Reference", href: "/bv-1/reference" },
   },
   ticker: { enabled: false, text: "Documentation • Endpoints • SDKs • Guides" },
-  section: { title: "", text: "" },
-  moveSearch: true,
+  searchMode: "hero",
   flattenHeader: true,
-  layout: { maxW: 1120, colMin: 258, gap: 20, autoH: false, cardMinH: 396 },
+  headerImage: { enabled: false, url: "", height: 220, tint: 0 },
+  layout: { maxW: 1120 },
   banner: {
     enabled: false,
     title: "Need help building your integration?",
@@ -166,73 +197,42 @@ const DEFAULT_CONFIG = {
     btnHref: "/contact",
   },
   footer: "Can't find what you need? Use the search above or ask the AI assistant.",
-  liquid: {
-    enabled: false,
-    eyebrow: "Documentation",
-    badge: "dot",
-    icon: "📘",
-    blurbFallback: "Explore the guides and API reference for this project.",
-    peek: true,
-    peekLabel: "Inside",
-    peekCount: 3,
-    ctaText: "View docs",
-    ctaStyle: "ghost",
-    accents: ["green", "purple", "amber"],
-  },
-  cards: [
+  sections: [
     {
       id: uid(),
-      icon: "📘",
-      title: "Public",
-      blurb: "Guides, references, and API docs open to everyone.",
-      href: "/bv-1",
-      eyebrow: "Open access",
-      badge: "dot",
-      accent: "green",
-      customLight: "#0C7A66",
-      customDark: "#34C98E",
-      peekLabel: "Popular",
-      peekItems: ["Quickstart guide", "API reference", "Authentication"],
-      peekArrows: true,
-      ctaText: "Browse docs",
-      ctaStyle: "filled",
-      primary: true,
-    },
-    {
-      id: uid(),
-      icon: "🤝",
-      title: "Partners",
-      blurb: "Integration guides and resources for approved partners.",
-      href: "/bv-2",
-      eyebrow: "Log in to view",
-      badge: "lock",
-      accent: "purple",
-      customLight: "#5B48D0",
-      customDark: "#A49AF0",
-      peekLabel: "Inside",
-      peekItems: ["Certification paths", "Co-marketing kits", "Sandbox access"],
-      peekArrows: false,
-      ctaText: "Partner portal",
-      ctaStyle: "ghost",
-      primary: false,
-    },
-    {
-      id: uid(),
-      icon: "🧪",
-      title: "Beta",
-      blurb: "Preview features and docs that are still taking shape.",
-      href: "/bv-3",
-      eyebrow: "Log in to view",
-      badge: "lock",
-      accent: "amber",
-      customLight: "#9C6212",
-      customDark: "#E3B168",
-      peekLabel: "Inside",
-      peekItems: ["Early API changelogs", "Feature previews", "Feedback board"],
-      peekArrows: false,
-      ctaText: "Preview docs",
-      ctaStyle: "ghost",
-      primary: false,
+      heading: "",
+      intro: "",
+      align: "center",
+      source: "static",
+      style: { ...DEFAULT_STYLE },
+      layout: { ...DEFAULT_SECTION_LAYOUT },
+      liquid: { ...DEFAULT_LIQUID },
+      cards: [
+        {
+          id: uid(), icon: "📘", iconType: "emoji", faStyle: "solid",
+          title: "Public", blurb: "Guides, references, and API docs open to everyone.",
+          href: "/bv-1", eyebrow: "Open access", badge: "dot", accent: "green",
+          customLight: "#0C7A66", customDark: "#34C98E",
+          peekLabel: "Popular", peekItems: ["Quickstart guide", "API reference", "Authentication"],
+          peekArrows: true, ctaText: "Browse docs", ctaStyle: "filled", primary: true,
+        },
+        {
+          id: uid(), icon: "🤝", iconType: "emoji", faStyle: "solid",
+          title: "Partners", blurb: "Integration guides and resources for approved partners.",
+          href: "/bv-2", eyebrow: "Log in to view", badge: "lock", accent: "purple",
+          customLight: "#5B48D0", customDark: "#A49AF0",
+          peekLabel: "Inside", peekItems: ["Certification paths", "Co-marketing kits", "Sandbox access"],
+          peekArrows: false, ctaText: "Partner portal", ctaStyle: "ghost", primary: false,
+        },
+        {
+          id: uid(), icon: "🧪", iconType: "emoji", faStyle: "solid",
+          title: "Beta", blurb: "Preview features and docs that are still taking shape.",
+          href: "/bv-3", eyebrow: "Log in to view", badge: "lock", accent: "amber",
+          customLight: "#9C6212", customDark: "#E3B168",
+          peekLabel: "Inside", peekItems: ["Early API changelogs", "Feature previews", "Feedback board"],
+          peekArrows: false, ctaText: "Preview docs", ctaStyle: "ghost", primary: false,
+        },
+      ],
     },
   ],
 };
@@ -248,56 +248,239 @@ const esc = (s = "") =>
 const cardAccent = (card) =>
   card.accent === "custom"
     ? { light: card.customLight, dark: card.customDark }
-    : { light: ACCENTS[card.accent].light, dark: ACCENTS[card.accent].dark };
+    : { light: (ACCENTS[card.accent] || ACCENTS.green).light, dark: (ACCENTS[card.accent] || ACCENTS.green).dark };
 
 /* auto-prepend "/" to link paths (leaves full URLs and #anchors alone) */
 const normPath = (v) => (!v || /^[/#]/.test(v) || /^https?:/i.test(v) ? v : "/" + v);
 
+/* Font Awesome <i> markup (emoji falls back to the raw character) */
+const iconMarkup = (o) =>
+  o && o.iconType === "fa"
+    ? `<i class="fa-${o.faStyle || "solid"} fa-${esc(String(o.icon || "").replace(/^fa-/, ""))}" aria-hidden="true"></i>`
+    : esc(o ? o.icon : "");
+
 const encodeConfig = (cfg) => btoa(unescape(encodeURIComponent(JSON.stringify(cfg))));
 const decodeConfig = (s) => JSON.parse(decodeURIComponent(escape(atob(s))));
+
+/* ---------------- config migration / normalization ---------------- */
+const normCard = (c) => ({ ...CARD_DEFAULTS, ...c, id: c.id || uid() });
+
+const normSection = (s) => ({
+  id: s.id || uid(),
+  heading: s.heading || "",
+  intro: s.intro || "",
+  align: s.align === "left" ? "left" : "center",
+  source: s.source === "liquid" ? "liquid" : "static",
+  style: { ...DEFAULT_STYLE, ...(s.style || {}) },
+  layout: { ...DEFAULT_SECTION_LAYOUT, ...(s.layout || {}) },
+  liquid: { ...DEFAULT_LIQUID, ...(s.liquid || {}) },
+  cards: (s.cards && s.cards.length ? s.cards : DEFAULT_CONFIG.sections[0].cards).map(normCard),
+});
 
 /* merge a (possibly older/partial) shared config over the defaults */
 function migrateConfig(loaded) {
   const D = DEFAULT_CONFIG;
-  return {
-    ...D,
-    ...loaded,
+  const base = {
+    fonts: loaded.fonts || D.fonts,
     hero: { ...D.hero, ...(loaded.hero || {}) },
     ticker: { ...D.ticker, ...(loaded.ticker || {}) },
-    section: { ...D.section, ...(loaded.section || {}) },
-    layout: { ...D.layout, ...(loaded.layout || {}) },
+    searchMode: loaded.searchMode || (loaded.moveSearch === false ? "native" : "hero"),
+    flattenHeader: loaded.flattenHeader !== false,
+    headerImage: { ...D.headerImage, ...(loaded.headerImage || {}) },
+    layout: { maxW: (loaded.layout && loaded.layout.maxW) || 1120 },
     banner: { ...D.banner, ...(loaded.banner || {}) },
-    liquid: { ...D.liquid, ...(loaded.liquid || {}) },
-    cards: (loaded.cards && loaded.cards.length ? loaded.cards : D.cards).map((c) => ({
-      ...CARD_DEFAULTS,
-      ...c,
-      id: c.id || uid(),
-    })),
+    footer: loaded.footer != null ? loaded.footer : D.footer,
   };
+
+  /* already v4 (has sections) */
+  if (loaded.sections && loaded.sections.length) {
+    return { ...base, sections: loaded.sections.map(normSection) };
+  }
+
+  /* migrate v3 (single template + flat cards) into one section */
+  const grid = loaded.layout || {};
+  const section = normSection({
+    heading: (loaded.section && loaded.section.title) || "",
+    intro: (loaded.section && loaded.section.text) || "",
+    align: loaded.hero && loaded.hero.align === "left" ? "left" : "center",
+    source: loaded.liquid && loaded.liquid.enabled ? "liquid" : "static",
+    style: TEMPLATE_TO_STYLE[loaded.template] || DEFAULT_STYLE,
+    layout: {
+      colMin: grid.colMin || 258,
+      gap: grid.gap || 20,
+      autoH: !!grid.autoH,
+      cardMinH: grid.cardMinH || 396,
+      bento: loaded.template === "bento",
+    },
+    liquid: loaded.liquid || {},
+    cards: loaded.cards || [],
+  });
+  return { ...base, sections: [section] };
 }
 
 /* ============================================================
    HTML GENERATOR
    ============================================================ */
+const INLINE_CARD_STYLE =
+  'style="background-color: var(--card-bg) !important; background: var(--card-bg) !important; border: 1px solid var(--card-border) !important; border-radius: var(--card-radius) !important; box-shadow: var(--card-shadow) !important; backdrop-filter: var(--card-blur) !important; -webkit-backdrop-filter: var(--card-blur) !important;"';
+
+/* card markup builder — used for both static cards and the Liquid loop
+   (vars are either literal strings or Liquid tags) */
+function buildCard(v, style) {
+  const primaryCls = v.primary ? " bnk-card--primary" : "";
+  const openTag = style.anchor
+    ? `<a class="bnk-card ${v.accentClass}${primaryCls}" href="${v.href}"\n       ${INLINE_CARD_STYLE}>`
+    : `<div class="bnk-card ${v.accentClass}${primaryCls}"\n       ${INLINE_CARD_STYLE}>`;
+  const closeTag = style.anchor ? "</a>" : "</div>";
+
+  let inner = "";
+  if (style.file) inner += `\n      <span class="bnk-card__eyebrow">${v.fileLabel}</span>`;
+  else if (style.badge) inner += `\n      <span class="bnk-card__eyebrow">${v.badgeHtml}${v.eyebrow}</span>`;
+  if (style.num) inner += `\n      <span class="bnk-card__num">${v.num}</span>`;
+  if (style.icon) inner += `\n      <span class="bnk-card__icon" aria-hidden="true">${v.icon}</span>`;
+  inner += `\n      <span class="bnk-card__title">${v.title}</span>`;
+  inner += `\n      <span class="bnk-card__blurb">${v.blurb}</span>`;
+  if (style.peek && v.peekHtml) inner += `\n${v.peekHtml}`;
+  if (style.cta) {
+    const ctaCls = style.ctaPlain
+      ? "bnk-card__go bnk-card__go--plain"
+      : `bnk-card__go bnk-card__go--${v.ctaStyle === "filled" ? "filled" : "ghost"}`;
+    inner += style.anchor
+      ? `\n      <span class="${ctaCls}">${v.ctaText}<span class="rm-arrow" aria-hidden="true">&#8594;</span></span>`
+      : `\n      <a class="${ctaCls}" href="${v.href}">${v.ctaText}<span class="rm-arrow" aria-hidden="true">&#8594;</span></a>`;
+  } else if (style.anchor) {
+    /* whole-card link with no CTA → trailing arrow (compact "tiles" feel) */
+    inner += `\n      <span class="rm-arrow bnk-card__arrow" aria-hidden="true">&#8594;</span>`;
+  }
+
+  return `    <!-- ${v.comment} -->\n    ${openTag}${inner}\n    ${closeTag}`;
+}
+
+function staticPeek(c) {
+  const items = c.peekItems.filter((p) => p.trim());
+  if (!items.length) return "";
+  return `      <span class="bnk-card__peek">
+        <span class="bnk-card__peek-label">${esc(c.peekLabel)}</span>
+${items
+  .map((p) => `        <span class="bnk-card__peek-item">${c.peekArrows ? '<span class="bnk-tick">&#8594;</span>' : ""}${esc(p)}</span>`)
+  .join("\n")}
+      </span>`;
+}
+
+/* build the cards for one section — static list or a Liquid loop */
+function sectionCards(sec, palette) {
+  const N = Math.max(1, palette.length);
+  if (sec.source !== "liquid") {
+    return sec.cards
+      .map((c, i) =>
+        buildCard(
+          {
+            accentClass: `bnk-card--a${i}`,
+            primary: c.primary,
+            href: esc(c.href),
+            eyebrow: esc(c.eyebrow),
+            badgeHtml: c.badge === "lock" ? LOCK_SVG : '<span class="bnk-dot"></span>',
+            icon: iconMarkup(c),
+            num: String(i + 1).padStart(2, "0"),
+            fileLabel: `File_${String(i + 1).padStart(2, "0")}${c.eyebrow.trim() ? " // " + esc(c.eyebrow) : ""}`,
+            title: esc(c.title),
+            blurb: esc(c.blurb),
+            peekHtml: staticPeek(c),
+            ctaText: esc(c.ctaText),
+            ctaStyle: c.ctaStyle,
+            comment: `Card ${i + 1} — ${esc(c.title)}`,
+          },
+          sec.style
+        )
+      )
+      .join("\n\n");
+  }
+
+  const Q = sec.liquid;
+  const liquidPeek = Q.peek
+    ? `      <span class="bnk-card__peek">
+        <span class="bnk-card__peek-label">${esc(Q.peekLabel)}</span>
+        {% for category in child.guides limit: ${Q.peekCount} %}
+        <span class="bnk-card__peek-item">{{ category.title }}</span>
+        {% endfor %}
+      </span>`
+    : "";
+  const inner = buildCard(
+    {
+      accentClass: "bnk-card--a{{ ai }}",
+      primary: false,
+      href: "/{{ child.subpath }}",
+      eyebrow: esc(Q.eyebrow),
+      badgeHtml: Q.badge === "lock" ? LOCK_SVG : '<span class="bnk-dot"></span>',
+      icon: iconMarkup(Q),
+      num: "{% if forloop.index < 10 %}0{% endif %}{{ forloop.index }}",
+      fileLabel: `File_{% if forloop.index < 10 %}0{% endif %}{{ forloop.index }}${Q.eyebrow.trim() ? " // " + esc(Q.eyebrow) : ""}`,
+      title: "{{ child.name }}",
+      blurb: `{{ child.description | default: "${esc(Q.blurbFallback)}" }}`,
+      peekHtml: liquidPeek,
+      ctaText: esc(Q.ctaText),
+      ctaStyle: Q.ctaStyle,
+      comment: "One card per child project (Liquid)",
+    },
+    sec.style
+  );
+  return `    {% for child in parentProject.childrenProjects %}
+    {% assign ai = forloop.index0 | modulo: ${N} %}
+${inner}
+    {% endfor %}`;
+}
+
+const densityPad = (d) => (d === "compact" ? "19px 20px 18px" : d === "comfortable" ? "26px 26px 24px" : "25px 25px 23px");
+const densityTitle = (d) => (d === "compact" ? "16.5px" : d === "comfortable" ? "21px" : "30px");
+
 function generateHTML(cfg) {
-  const T = cfg.template;
-  const S = TSPEC[T];
-  const F = FONTS[cfg.fonts];
+  const F = FONTS[cfg.fonts] || FONTS.grotesk;
   const L = cfg.layout;
-  const liquid = cfg.liquid.enabled;
-
-  /* accent palette: static cards, or the liquid accent cycle */
-  const palette = liquid
-    ? cfg.liquid.accents.map((k) => ACCENTS[k] || ACCENTS.green)
-    : cfg.cards.map((c) => cardAccent(c));
-  const N = palette.length;
-
-  const lightAccents = palette.map((a, i) => `    --bnk-a${i}: ${a.light};`).join("\n");
-  const darkAccents = (pad) => palette.map((a, i) => `${pad}--bnk-a${i}: ${a.dark};`).join("\n");
-  const accentRules = palette.map((_, i) => `  .bnk-card--a${i} { --accent: var(--bnk-a${i}); }`).join("\n");
-
+  const sections = cfg.sections;
   const heroLeft = cfg.hero.align === "left";
-  const inlineCardStyle = `style="background-color: var(--card-bg) !important; background: var(--card-bg) !important; border: 1px solid var(--card-border) !important; border-radius: ${S.radius}px !important; box-shadow: var(--card-shadow) !important; backdrop-filter: var(--card-blur) !important; -webkit-backdrop-filter: var(--card-blur) !important;"`;
+  const hasLiquid = sections.some((s) => s.source === "liquid");
+
+  /* per-section accent palettes */
+  const palettes = sections.map((sec) => {
+    const p =
+      sec.source === "liquid"
+        ? sec.liquid.accents.map((k) => ACCENTS[k] || ACCENTS.green)
+        : sec.cards.map((c) => cardAccent(c));
+    return p.length ? p : [ACCENTS.green];
+  });
+  const primary = palettes[0][0];
+
+  /* accent CSS vars, scoped per section */
+  const lightAccents = sections
+    .map((_, i) => palettes[i].map((a, j) => `    --bnk-s${i}a${j}: ${a.light};`).join("\n"))
+    .join("\n");
+  const darkAccents = (pad) =>
+    sections.map((_, i) => palettes[i].map((a, j) => `${pad}--bnk-s${i}a${j}: ${a.dark};`).join("\n")).join("\n");
+  const accentRules = sections
+    .map((_, i) => palettes[i].map((__, j) => `  .bnk-sec-${i} .bnk-card--a${j} { --accent: var(--bnk-s${i}a${j}); }`).join("\n"))
+    .join("\n");
+
+  /* per-section grids */
+  const gridRules = sections
+    .map((sec, i) =>
+      sec.layout.bento
+        ? `  .bnk-sec-${i} .bnk-grid {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: ${sec.layout.gap}px;
+  }
+  .bnk-sec-${i} .bnk-grid > *:nth-child(4n+1) { grid-column: span 4; }
+  .bnk-sec-${i} .bnk-grid > *:nth-child(4n+2) { grid-column: span 2; }
+  .bnk-sec-${i} .bnk-grid > *:nth-child(4n+3) { grid-column: span 2; }
+  .bnk-sec-${i} .bnk-grid > *:nth-child(4n)   { grid-column: span 4; }
+  @media (max-width: 760px) { .bnk-sec-${i} .bnk-grid > * { grid-column: 1 / -1 !important; } }`
+        : `  .bnk-sec-${i} .bnk-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(${sec.layout.colMin}px, 1fr));
+    gap: ${sec.layout.gap}px;
+  }`
+    )
+    .join("\n");
 
   /* ---------- optional CSS blocks ---------- */
   const headerCSS = cfg.flattenHeader
@@ -313,15 +496,52 @@ function generateHTML(cfg) {
 `
     : "";
 
-  const actionsCSS = cfg.moveSearch
+  const headerImageCSS = cfg.headerImage.enabled
     ? `
-  /* ===== Search + Ask AI row (relocated from the header) ===== */
+  /* ===== Header background image (between header top row and subnav) ===== */
+  .bnk-headerbg {
+    position: relative;
+    width: 100%;
+    height: ${cfg.headerImage.height}px;
+    background: ${cfg.headerImage.url ? `url("${cfg.headerImage.url}")` : "linear-gradient(120deg, #2A3346, #10131A)"} center / cover no-repeat;
+  }
+${
+  cfg.headerImage.tint > 0
+    ? `  .bnk-headerbg::after { content: ""; position: absolute; inset: 0; background: rgba(0,0,0,${(cfg.headerImage.tint / 100).toFixed(2)}); }\n`
+    : ""
+}`
+    : "";
+
+  const headerCenterCSS =
+    cfg.searchMode === "header"
+      ? `
+  /* ===== Search + Ask AI centered inside the header top row ===== */
+  .rm-Header-top { position: relative !important; }
+  .bnk-header-center {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    z-index: 6;
+  }
+  .bnk-header-center .rm-Header-search { display: flex !important; }
+  .bnk-header-center .rm-SearchToggle { min-width: 300px !important; }
+`
+      : "";
+
+  const actionsCSS =
+    cfg.searchMode === "hero"
+      ? `
+  /* ===== Search + Ask AI row (relocated under the hero) ===== */
   .bnk-actions {
     display: flex;
     justify-content: ${heroLeft ? "flex-start" : "center"};
     align-items: stretch;
     gap: 12px;
-    margin: 26px ${heroLeft ? "0" : "auto"} 44px;
+    margin: 26px ${heroLeft ? "0" : "auto"} 8px;
     flex-wrap: wrap;
   }
   .bnk-actions .rm-Header-search {
@@ -349,7 +569,7 @@ function generateHTML(cfg) {
     font-size: 14px !important;
   }
 `
-    : "";
+      : "";
 
   const tickerCSS = cfg.ticker.enabled
     ? `
@@ -387,9 +607,9 @@ function generateHTML(cfg) {
     font-size: 11px;
     letter-spacing: 0.08em;
     text-decoration: none;
-    color: var(--bnk-a0) !important;
-    background: color-mix(in srgb, var(--bnk-a0) 10%, transparent);
-    border: 1px solid color-mix(in srgb, var(--bnk-a0) 30%, transparent);
+    color: var(--bnk-accent) !important;
+    background: color-mix(in srgb, var(--bnk-accent) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--bnk-accent) 30%, transparent);
   }
 `
     : "";
@@ -411,11 +631,11 @@ function generateHTML(cfg) {
     font-size: 13.5px;
     letter-spacing: 0.05em;
     padding: 12px 22px;
-    border-radius: ${T === "archive" ? "4px" : "10px"};
+    border-radius: 10px;
     text-decoration: none;
     transition: filter 150ms ease, border-color 150ms ease;
   }
-  .bnk-btn--primary { background: var(--bnk-a0); color: var(--bnk-cta-on) !important; }
+  .bnk-btn--primary { background: var(--bnk-accent); color: var(--bnk-cta-on) !important; }
   .bnk-btn--primary:hover { filter: brightness(1.08); }
   .bnk-btn--secondary {
     border: 1px solid color-mix(in srgb, var(--bnk-heading) 25%, transparent);
@@ -424,22 +644,6 @@ function generateHTML(cfg) {
   .bnk-btn--secondary:hover { border-color: color-mix(in srgb, var(--bnk-heading) 50%, transparent); }
 `
     : "";
-
-  const sectionCSS =
-    cfg.section.title.trim() || cfg.section.text.trim()
-      ? `
-  .bnk-section { margin: 6px 0 20px; ${heroLeft ? "" : "text-align: center;"} }
-  .bnk-section__title {
-    margin: 0 0 8px;
-    font-family: ${F.display};
-    font-weight: 600;
-    font-size: 25px;
-    letter-spacing: -0.01em;
-    color: var(--bnk-heading) !important;
-  }
-  .bnk-section__text { margin: 0 ${heroLeft ? "0" : "auto"}; max-width: 680px; font-size: 14px; line-height: 1.55; color: var(--bnk-ink-2) !important; }
-`
-      : "";
 
   const bannerCSS = cfg.banner.enabled
     ? `
@@ -450,9 +654,9 @@ function generateHTML(cfg) {
     flex-wrap: wrap;
     margin-top: 44px;
     padding: 32px 36px;
-    border-radius: ${S.radius}px;
-    background: color-mix(in srgb, var(--bnk-a0) 7%, var(--card-bg));
-    border: 1px solid color-mix(in srgb, var(--bnk-a0) 28%, var(--card-border));
+    border-radius: 16px;
+    background: color-mix(in srgb, var(--bnk-accent) 7%, var(--card-bg));
+    border: 1px solid color-mix(in srgb, var(--bnk-accent) 28%, var(--card-border));
   }
   .bnk-banner__copy { flex: 1 1 340px; }
   .bnk-banner__title {
@@ -472,9 +676,9 @@ function generateHTML(cfg) {
     font-size: 13.5px;
     letter-spacing: 0.05em;
     padding: 12px 22px;
-    border-radius: ${T === "archive" ? "4px" : "10px"};
+    border-radius: 10px;
     text-decoration: none;
-    background: var(--bnk-a0);
+    background: var(--bnk-accent);
     color: var(--bnk-cta-on) !important;
     transition: filter 150ms ease;
   }
@@ -482,22 +686,80 @@ function generateHTML(cfg) {
 `
     : "";
 
-  /* archive hero styling override */
-  const archiveHeroCSS =
-    T === "archive"
-      ? `
-  .bnk-hero__title { font-family: ${F.mono} !important; text-transform: uppercase; letter-spacing: 0.02em; }
-  .bnk-hero__sub::before { content: "// "; font-family: ${F.mono}; color: var(--bnk-ink-2); }
-`
-      : "";
-
-  /* ---------- shared hover rules ---------- */
-  const hoverCSS = `
-  .bnk-card:hover { transform: translateY(-${T === "tiles" || T === "helpcenter" ? 2 : 3}px); }
-  .bnk-card:hover {
-    background-color: #F4F4F5 !important;
-    border-color: color-mix(in srgb, var(--accent) 45%, #D4D4D8) !important;
+  /* ---------- unified, switch-driven card CSS (one block) ---------- */
+  const cardCSS = `
+  .bnk-card {
+    --accent: var(--bnk-ink-2);
+    position: relative; display: flex; flex-direction: column;
+    min-height: var(--card-minh, auto);
+    padding: var(--card-pad, 25px 25px 23px);
+    overflow: hidden; text-decoration: none;
+    transition: transform 200ms ease, border-color 200ms ease, background-color 200ms ease;
   }
+  .bnk-card--primary { border-color: color-mix(in srgb, var(--accent) 38%, var(--card-border)) !important; }
+
+  .bnk-sec--bar .bnk-card::before {
+    content: ""; position: absolute; inset: 0 0 auto 0; height: 3px;
+    background: var(--accent); opacity: 0.85; transition: opacity 200ms ease;
+  }
+  .bnk-sec--bar .bnk-card:hover::before { opacity: 1; }
+
+  .bnk-card__eyebrow {
+    display: inline-flex; align-items: center; gap: 8px; align-self: flex-start;
+    margin-bottom: 14px; padding: 5px 10px; border-radius: 6px; line-height: 1.4;
+    font-family: ${F.mono}; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--accent) !important; background: color-mix(in srgb, var(--accent) 11%, transparent);
+  }
+  .bnk-sec--mono .bnk-card__eyebrow { background: transparent; padding: 0; letter-spacing: 0.1em; text-transform: none; }
+  .bnk-dot { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--accent); transition: box-shadow 200ms ease; }
+  .bnk-lock { width: 11px; height: 11px; flex: none; display: inline-block; }
+  .bnk-card:hover .bnk-dot { box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 22%, transparent); }
+
+  .bnk-card__num {
+    display: block; font-family: ${F.mono}; font-size: 26px; font-weight: 700;
+    letter-spacing: 0.04em; color: color-mix(in srgb, var(--accent) 70%, transparent); margin-bottom: 12px;
+  }
+  .bnk-card__icon {
+    width: 46px; height: 46px; display: flex; align-items: center; justify-content: center;
+    font-size: 24px; line-height: 1; border-radius: 12px; color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 11%, transparent); margin-bottom: 16px;
+  }
+  .bnk-card__title {
+    margin: 0 0 8px; font-family: var(--title-font, ${F.display}); font-weight: 600;
+    font-size: var(--title-size, 21px); line-height: 1.15; letter-spacing: -0.01em;
+    text-transform: var(--title-tt, none); color: var(--card-title) !important;
+  }
+  .bnk-sec--mono .bnk-card__title { font-weight: 700; }
+  .bnk-card__blurb { font-size: 13.5px; line-height: 1.55; color: var(--bnk-ink-1) !important; }
+
+  .bnk-card__peek { margin-top: 16px; margin-bottom: 20px; padding-top: 13px; border-top: 1px solid var(--card-divider); }
+  .bnk-card__peek-label {
+    display: block; margin: 0 0 8px; font-family: ${F.mono}; font-size: 10.5px;
+    letter-spacing: 0.12em; text-transform: uppercase; color: var(--bnk-ink-2) !important;
+  }
+  .bnk-card__peek-item {
+    display: flex; align-items: baseline; gap: 7px; margin: 0 0 6px;
+    font-size: 13px; line-height: 1.45; color: var(--bnk-ink-1) !important;
+  }
+  .bnk-card__peek-item:last-child { margin-bottom: 0; }
+  .bnk-card__peek-item .bnk-tick { flex: none; color: var(--accent) !important; font-family: ${F.mono}; font-size: 11px; }
+
+  .bnk-card__go {
+    display: inline-flex; align-items: center; gap: 8px; align-self: flex-start; margin-top: auto;
+    font-family: ${F.mono}; font-size: 13.5px; letter-spacing: 0.05em;
+    padding: 10px 18px; border-radius: 9px; text-decoration: none;
+    transition: border-color 200ms ease;
+  }
+  .bnk-card__go--filled { background: var(--accent); color: var(--bnk-cta-on) !important; }
+  .bnk-card__go--ghost { border: 1px solid color-mix(in srgb, var(--accent) 38%, transparent); color: var(--accent) !important; }
+  .bnk-card__go--ghost:hover, .bnk-card:hover .bnk-card__go--ghost { border-color: color-mix(in srgb, var(--accent) 65%, transparent); }
+  .bnk-card__go--plain { padding: 14px 0 0; border: 0; background: transparent; color: var(--accent) !important; font-size: 12.5px; }
+  .bnk-card__go:hover .rm-arrow { transform: translateX(4px); }
+
+  .bnk-card__arrow { margin-top: auto; padding-top: 14px; align-self: flex-end; color: var(--accent) !important; font-size: 16px; }
+
+  .bnk-card:hover { transform: translateY(-3px); }
+  .bnk-card:hover { background-color: #F4F4F5 !important; border-color: color-mix(in srgb, var(--accent) 45%, #D4D4D8) !important; }
   [data-color-mode="dark"] .bnk-card:hover {
     background-color: rgba(255, 255, 255, 0.06) !important;
     border-color: color-mix(in srgb, var(--accent) 45%, rgba(255,255,255,0.18)) !important;
@@ -508,379 +770,58 @@ function generateHTML(cfg) {
       border-color: color-mix(in srgb, var(--accent) 45%, rgba(255,255,255,0.18)) !important;
     }
   }
-  ${S.bar ? ".bnk-card:hover::before { opacity: 1; }" : ""}
   .bnk-card:hover .rm-arrow { transform: translateX(4px); }
   .bnk-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 `;
 
-  const barCSS = S.bar
-    ? `
-  .bnk-card::before {
-    content: "";
-    position: absolute;
-    inset: 0 0 auto 0;
-    height: 3px;
-    background: var(--accent);
-    opacity: 0.85;
-    transition: opacity 200ms ease;
-  }
-`
-    : "";
-
-  const peekCSS = S.peek
-    ? `
-  .bnk-card__peek {
-    margin-top: 16px;
-    margin-bottom: 20px;
-    padding-top: 13px;
-    border-top: 1px solid var(--card-divider);
-  }
-  .bnk-card__peek-label {
-    display: block;
+  /* ---------- section heading CSS ---------- */
+  const sectionCSS = `
+  .bnk-sec { margin-top: 36px; }
+  .bnk-section { margin: 0 0 20px; }
+  .bnk-section__title {
     margin: 0 0 8px;
-    font-family: ${F.mono};
-    font-size: 10.5px;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--bnk-ink-2) !important;
-  }
-  .bnk-card__peek-item {
-    display: flex; align-items: baseline; gap: 7px;
-    margin: 0 0 6px;
-    font-size: 13px; line-height: 1.45;
-    color: var(--bnk-ink-1) !important;
-  }
-  .bnk-card__peek-item:last-child { margin-bottom: 0; }
-  .bnk-card__peek-item .bnk-tick { flex: none; color: var(--accent) !important; font-family: ${F.mono}; font-size: 11px; }
-`
-    : "";
-
-  /* ---------- per-template card body CSS ---------- */
-  const minH = L.autoH ? "" : `min-height: ${L.cardMinH}px;`;
-  let cardCSS = "";
-
-  if (T === "audience") {
-    cardCSS = `
-  .bnk-card {
-    --accent: var(--bnk-ink-2);
-    position: relative; display: flex; flex-direction: column;
-    ${minH}
-    padding: 25px 25px 23px; overflow: hidden; text-decoration: none;
-    transition: transform 200ms ease, border-color 200ms ease, background-color 200ms ease;
-  }
-${barCSS}
-${accentRules}
-  .bnk-card--primary { border-color: color-mix(in srgb, var(--accent) 38%, var(--card-border)) !important; }
-
-  .bnk-card__eyebrow {
-    display: inline-flex; align-items: center; gap: 8px; align-self: flex-start;
-    padding: 5px 10px; border-radius: 6px; line-height: 1.4;
-    font-family: ${F.mono}; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase;
-    color: var(--accent) !important;
-    background: color-mix(in srgb, var(--accent) 11%, transparent);
-  }
-  .bnk-dot { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--accent); transition: box-shadow 200ms ease; }
-  .bnk-lock { width: 11px; height: 11px; flex: none; display: inline-block; }
-  .bnk-card:hover .bnk-dot { box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 22%, transparent); }
-
-  .bnk-card__title { margin: 22px 0 8px; font-family: ${F.display}; font-weight: 600; font-size: 30px; letter-spacing: -0.01em; }
-  .bnk-card__blurb { font-size: 14px; line-height: 1.55; color: var(--bnk-ink-1) !important; }
-${peekCSS}
-  .bnk-card__go {
-    display: inline-flex; align-items: center; gap: 8px; align-self: flex-start; margin-top: auto;
-    font-family: ${F.mono}; font-size: 14px; letter-spacing: 0.06em;
-    padding: 10px 18px; border-radius: 9px;
-    transition: border-color 200ms ease;
-  }
-  .bnk-card__go--filled { background: var(--accent); color: var(--bnk-cta-on) !important; }
-  .bnk-card__go--ghost { border: 1px solid color-mix(in srgb, var(--accent) 38%, transparent); color: var(--accent) !important; }
-  .bnk-card:hover .bnk-card__go--ghost { border-color: color-mix(in srgb, var(--accent) 65%, transparent); }
-${hoverCSS}`;
-  } else if (T === "solutions" || T === "bento") {
-    cardCSS = `
-  .bnk-card {
-    --accent: var(--bnk-ink-2);
-    position: relative; display: flex; flex-direction: column;
-    ${minH}
-    padding: 26px 26px 24px; overflow: hidden;
-    transition: transform 200ms ease, border-color 200ms ease, background-color 200ms ease;
-  }
-${barCSS}
-${accentRules}
-  .bnk-card--primary { border-color: color-mix(in srgb, var(--accent) 38%, var(--card-border)) !important; }
-
-  .bnk-card__icon {
-    width: 46px; height: 46px;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 24px; line-height: 1; border-radius: 12px;
-    background: color-mix(in srgb, var(--accent) 11%, transparent);
-    margin-bottom: 18px;
-  }
-  .bnk-card__title { margin: 0 0 8px; font-family: ${F.display}; font-weight: 600; font-size: 21px; letter-spacing: -0.01em; color: var(--card-title) !important; }
-  .bnk-card__blurb { font-size: 13.5px; line-height: 1.55; color: var(--bnk-ink-1) !important; }
-${peekCSS}
-  .bnk-card__go {
-    display: inline-flex; align-items: center; gap: 8px; align-self: flex-start; margin-top: auto;
-    font-family: ${F.mono}; font-size: 13.5px; letter-spacing: 0.05em;
-    padding: 10px 18px; border-radius: 9px; text-decoration: none;
-    transition: border-color 200ms ease;
-  }
-  .bnk-card__go--filled { background: var(--accent); color: var(--bnk-cta-on) !important; }
-  .bnk-card__go--ghost { border: 1px solid color-mix(in srgb, var(--accent) 38%, transparent); color: var(--accent) !important; }
-  .bnk-card__go:hover .rm-arrow { transform: translateX(4px); }
-  .bnk-card__go--ghost:hover { border-color: color-mix(in srgb, var(--accent) 65%, transparent); }
-${hoverCSS}`;
-  } else if (T === "launchpad") {
-    cardCSS = `
-  .bnk-card {
-    --accent: var(--bnk-ink-2);
-    position: relative; display: flex; flex-direction: column;
-    ${minH}
-    padding: 26px 26px 24px; overflow: hidden;
-    transition: transform 200ms ease, border-color 200ms ease, background-color 200ms ease;
-  }
-${barCSS}
-${accentRules}
-  .bnk-card--primary { border-color: color-mix(in srgb, var(--accent) 38%, var(--card-border)) !important; }
-
-  .bnk-card__num {
-    display: block;
-    font-family: ${F.mono};
-    font-size: 26px;
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    color: color-mix(in srgb, var(--accent) 70%, transparent);
-    margin-bottom: 14px;
-  }
-  .bnk-card__title { margin: 0 0 8px; font-family: ${F.display}; font-weight: 600; font-size: 20px; letter-spacing: -0.01em; color: var(--card-title) !important; }
-  .bnk-card__blurb { font-size: 13.5px; line-height: 1.55; color: var(--bnk-ink-1) !important; }
-${peekCSS}
-  .bnk-card__go {
-    display: inline-flex; align-items: center; gap: 8px; align-self: flex-start; margin-top: auto;
-    font-family: ${F.mono}; font-size: 13.5px; letter-spacing: 0.05em;
-    padding: 10px 18px; border-radius: 9px; text-decoration: none;
-    transition: border-color 200ms ease;
-  }
-  .bnk-card__go--filled { background: var(--accent); color: var(--bnk-cta-on) !important; }
-  .bnk-card__go--ghost { border: 1px solid color-mix(in srgb, var(--accent) 38%, transparent); color: var(--accent) !important; }
-  .bnk-card__go:hover .rm-arrow { transform: translateX(4px); }
-  .bnk-card__go--ghost:hover { border-color: color-mix(in srgb, var(--accent) 65%, transparent); }
-${hoverCSS}`;
-  } else if (T === "helpcenter") {
-    cardCSS = `
-  .bnk-card {
-    --accent: var(--bnk-ink-2);
-    position: relative; display: flex; flex-direction: column;
-    ${minH}
-    padding: 19px 20px 18px; overflow: hidden; text-decoration: none;
-    transition: transform 200ms ease, border-color 200ms ease, background-color 200ms ease;
-  }
-${accentRules}
-  .bnk-card--primary { border-color: color-mix(in srgb, var(--accent) 38%, var(--card-border)) !important; }
-
-  .bnk-card__title {
-    margin: 0 0 6px;
     font-family: ${F.display};
     font-weight: 600;
-    font-size: 16.5px;
-    letter-spacing: -0.005em;
-    color: var(--card-title) !important;
-    transition: color 150ms ease;
+    font-size: 25px;
+    letter-spacing: -0.01em;
+    color: var(--bnk-heading) !important;
   }
-  .bnk-card:hover .bnk-card__title { color: var(--accent) !important; }
-  .bnk-card__blurb { font-size: 13px; line-height: 1.5; color: var(--bnk-ink-1) !important; }
-${hoverCSS}`;
-  } else if (T === "tiles") {
-    cardCSS = `
-  .bnk-card {
-    --accent: var(--bnk-ink-2);
-    position: relative; display: flex; flex-direction: column;
-    ${minH}
-    padding: 20px 20px 18px; overflow: hidden; text-decoration: none;
-    transition: transform 200ms ease, border-color 200ms ease, background-color 200ms ease;
-  }
-${barCSS}
-${accentRules}
-  .bnk-card--primary { border-color: color-mix(in srgb, var(--accent) 38%, var(--card-border)) !important; }
-
-  .bnk-card__eyebrow {
-    display: inline-flex; align-items: center; gap: 7px; align-self: flex-start;
-    font-family: ${F.mono}; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
-    color: var(--accent) !important;
-    margin-bottom: 12px;
-  }
-  .bnk-dot { width: 6px; height: 6px; flex: none; border-radius: 50%; background: var(--accent); }
-  .bnk-lock { width: 10px; height: 10px; flex: none; display: inline-block; }
-
-  .bnk-card__title { margin: 0 0 6px; font-family: ${F.display}; font-weight: 600; font-size: 18px; letter-spacing: -0.01em; }
-  .bnk-card__blurb { font-size: 13px; line-height: 1.5; color: var(--bnk-ink-1) !important; }
-  .bnk-card .rm-arrow { margin-top: auto; padding-top: 14px; align-self: flex-end; color: var(--accent) !important; font-size: 16px; }
-${hoverCSS}`;
-  } else {
-    /* archive */
-    cardCSS = `
-  .bnk-card {
-    --accent: var(--bnk-ink-2);
-    position: relative; display: flex; flex-direction: column;
-    ${minH}
-    padding: 22px 22px 20px; overflow: hidden; text-decoration: none;
-    transition: transform 200ms ease, border-color 200ms ease, background-color 200ms ease;
-  }
-${barCSS}
-${accentRules}
-  .bnk-card--primary { border-color: color-mix(in srgb, var(--accent) 38%, var(--card-border)) !important; }
-
-  .bnk-card__eyebrow {
-    display: block;
-    font-family: ${F.mono};
-    font-size: 10.5px;
-    letter-spacing: 0.1em;
-    color: var(--accent) !important;
-    margin-bottom: 14px;
-  }
-  .bnk-card__title {
-    margin: 0 0 8px;
-    font-family: ${F.mono};
-    font-weight: 700;
-    font-size: 16px;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: var(--card-title) !important;
-  }
-  .bnk-card__blurb { font-size: 13px; line-height: 1.55; color: var(--bnk-ink-1) !important; }
-  .bnk-card__go {
-    display: inline-flex; align-items: center; gap: 8px; align-self: flex-start; margin-top: auto;
-    padding-top: 16px;
-    font-family: ${F.mono}; font-size: 12.5px; letter-spacing: 0.05em;
-    color: var(--accent) !important;
-  }
-${hoverCSS}`;
-  }
-
-  /* ---------- grid ---------- */
-  const gridCSS =
-    T === "bento"
-      ? `
-  .bnk-grid {
-    display: grid;
-    grid-template-columns: repeat(6, 1fr);
-    gap: ${L.gap}px;${cfg.moveSearch ? "" : "\n    margin-top: 40px;"}
-  }
-  .bnk-grid > *:nth-child(4n+1) { grid-column: span 4; }
-  .bnk-grid > *:nth-child(4n+2) { grid-column: span 2; }
-  .bnk-grid > *:nth-child(4n+3) { grid-column: span 2; }
-  .bnk-grid > *:nth-child(4n)   { grid-column: span 4; }
-  @media (max-width: 760px) {
-    .bnk-grid > * { grid-column: 1 / -1 !important; }
-  }
-`
-      : `
-  .bnk-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(${L.colMin}px, 1fr));
-    gap: ${L.gap}px;${cfg.moveSearch ? "" : "\n    margin-top: 40px;"}
-  }
+  .bnk-section__text { margin: 0; max-width: 680px; font-size: 14px; line-height: 1.55; color: var(--bnk-ink-2) !important; }
+  .bnk-sec--center .bnk-section { text-align: center; }
+  .bnk-sec--center .bnk-section__text { margin-left: auto; margin-right: auto; }
 `;
 
-  /* ============================================================
-     Card markup builder — used for both static cards and the
-     Liquid loop (vars are either literal strings or Liquid tags)
-     ============================================================ */
-  function buildCard(v) {
-    /* v: { accentClass, primary, href, eyebrow, badgeHtml, icon, num, fileLabel,
-            title, blurb, peekHtml, ctaText, ctaStyle, comment }             */
-    const primaryCls = v.primary ? " bnk-card--primary" : "";
-    const openTag = S.anchor
-      ? `<a class="bnk-card ${v.accentClass}${primaryCls}" href="${v.href}"\n       ${inlineCardStyle}>`
-      : `<div class="bnk-card ${v.accentClass}${primaryCls}"\n       ${inlineCardStyle}>`;
-    const closeTag = S.anchor ? "</a>" : "</div>";
+  /* ---------- sections markup ---------- */
+  const sectionsMarkup = sections
+    .map((sec, i) => {
+      const st = sec.style;
+      const cls =
+        `bnk-sec bnk-sec-${i} bnk-sec--${sec.align === "left" ? "left" : "center"}` +
+        (st.bar ? " bnk-sec--bar" : "") +
+        (st.mono ? " bnk-sec--mono" : "") +
+        (sec.layout.bento ? " bnk-sec--bento" : "");
+      const titleFont = st.mono ? F.mono : F.display;
+      const titleTt = st.mono ? "uppercase" : "none";
+      const minh = sec.layout.autoH ? "auto" : `${sec.layout.cardMinH}px`;
+      const styleVars = `--card-radius: ${st.radius}px; --card-pad: ${densityPad(st.density)}; --title-size: ${densityTitle(
+        st.density
+      )}; --title-font: ${titleFont}; --title-tt: ${titleTt}; --card-minh: ${minh};`;
+      const heading =
+        sec.heading.trim() || sec.intro.trim()
+          ? `    <div class="bnk-section">
+${sec.heading.trim() ? `      <h2 class="bnk-section__title">${esc(sec.heading)}</h2>\n` : ""}${
+              sec.intro.trim() ? `      <p class="bnk-section__text">${esc(sec.intro)}</p>\n` : ""
+            }    </div>\n`
+          : "";
+      return `  <div class="${cls}" style="${styleVars}">
+${heading}    <div class="bnk-grid">
+${sectionCards(sec, palettes[i])}
+    </div>
+  </div>`;
+    })
+    .join("\n");
 
-    let inner = "";
-    if (S.file) inner += `\n      <span class="bnk-card__eyebrow">${v.fileLabel}</span>`;
-    else if (S.badge) inner += `\n      <span class="bnk-card__eyebrow">${v.badgeHtml}${v.eyebrow}</span>`;
-    if (S.num) inner += `\n      <span class="bnk-card__num">${v.num}</span>`;
-    if (S.icon) inner += `\n      <span class="bnk-card__icon" aria-hidden="true">${v.icon}</span>`;
-    inner += `\n      <span class="bnk-card__title"${T === "audience" || T === "tiles" ? ' style="color: var(--card-title) !important;"' : ""}>${v.title}</span>`;
-    inner += `\n      <span class="bnk-card__blurb">${v.blurb}</span>`;
-    if (S.peek && v.peekHtml) inner += `\n${v.peekHtml}`;
-    if (S.cta) {
-      const ctaCls = S.ctaPlain ? "bnk-card__go" : `bnk-card__go bnk-card__go--${v.ctaStyle === "filled" ? "filled" : "ghost"}`;
-      inner += S.anchor
-        ? `\n      <span class="${ctaCls}">${v.ctaText}<span class="rm-arrow" aria-hidden="true">&#8594;</span></span>`
-        : `\n      <a class="${ctaCls}" href="${v.href}">${v.ctaText}<span class="rm-arrow" aria-hidden="true">&#8594;</span></a>`;
-    }
-    if (T === "tiles") inner += `\n      <span class="rm-arrow" aria-hidden="true">&#8594;</span>`;
-
-    return `    <!-- ${v.comment} -->\n    ${openTag}${inner}\n    ${closeTag}`;
-  }
-
-  function staticPeek(c) {
-    const items = c.peekItems.filter((p) => p.trim());
-    if (!items.length) return "";
-    return `      <span class="bnk-card__peek">
-        <span class="bnk-card__peek-label">${esc(c.peekLabel)}</span>
-${items
-  .map((p) => `        <span class="bnk-card__peek-item">${c.peekArrows ? '<span class="bnk-tick">&#8594;</span>' : ""}${esc(p)}</span>`)
-  .join("\n")}
-      </span>`;
-  }
-
-  /* ---------- cards: static or Liquid ---------- */
-  let cardsBlock;
-  if (!liquid) {
-    cardsBlock = cfg.cards
-      .map((c, i) =>
-        buildCard({
-          accentClass: `bnk-card--a${i}`,
-          primary: c.primary,
-          href: esc(c.href),
-          eyebrow: esc(c.eyebrow),
-          badgeHtml: c.badge === "lock" ? LOCK_SVG : '<span class="bnk-dot"></span>',
-          icon: esc(c.icon),
-          num: String(i + 1).padStart(2, "0"),
-          fileLabel: `File_${String(i + 1).padStart(2, "0")}${c.eyebrow.trim() ? " // " + esc(c.eyebrow) : ""}`,
-          title: esc(c.title),
-          blurb: esc(c.blurb),
-          peekHtml: staticPeek(c),
-          ctaText: esc(c.ctaText),
-          ctaStyle: c.ctaStyle,
-          comment: `Card ${i + 1} — ${esc(c.title)}`,
-        })
-      )
-      .join("\n\n");
-  } else {
-    const Q = cfg.liquid;
-    const liquidPeek = Q.peek
-      ? `      <span class="bnk-card__peek">
-        <span class="bnk-card__peek-label">${esc(Q.peekLabel)}</span>
-        {% for category in child.guides limit: ${Q.peekCount} %}
-        <span class="bnk-card__peek-item">{{ category.title }}</span>
-        {% endfor %}
-      </span>`
-      : "";
-    const inner = buildCard({
-      accentClass: "bnk-card--a{{ ai }}",
-      primary: false,
-      href: "/{{ child.subpath }}",
-      eyebrow: esc(Q.eyebrow),
-      badgeHtml: Q.badge === "lock" ? LOCK_SVG : '<span class="bnk-dot"></span>',
-      icon: esc(Q.icon),
-      num: "{% if forloop.index < 10 %}0{% endif %}{{ forloop.index }}",
-      fileLabel: `File_{% if forloop.index < 10 %}0{% endif %}{{ forloop.index }}${Q.eyebrow.trim() ? " // " + esc(Q.eyebrow) : ""}`,
-      title: "{{ child.name }}",
-      blurb: `{{ child.description | default: "${esc(Q.blurbFallback)}" }}`,
-      peekHtml: liquidPeek,
-      ctaText: esc(Q.ctaText),
-      ctaStyle: Q.ctaStyle,
-      comment: "One card per child project (Liquid)",
-    });
-    cardsBlock = `    {% for child in parentProject.childrenProjects %}
-    {% assign ai = forloop.index0 | modulo: ${N} %}
-${inner}
-    {% endfor %}`;
-  }
-
-  /* ---------- optional markup blocks ---------- */
+  /* ---------- optional hero markup blocks ---------- */
   const tickerMarkup = cfg.ticker.enabled
     ? (() => {
         const half = (esc(cfg.ticker.text) + " &bull; ").repeat(4);
@@ -899,13 +840,6 @@ ${inner}
       <a class="bnk-btn bnk-btn--secondary" href="${esc(cfg.hero.btnSecondary.href)}">${esc(cfg.hero.btnSecondary.label)}</a>
     </div>\n`
     : "";
-  const sectionMarkup =
-    cfg.section.title.trim() || cfg.section.text.trim()
-      ? `\n  <div class="bnk-section">
-${cfg.section.title.trim() ? `    <h2 class="bnk-section__title">${esc(cfg.section.title)}</h2>\n` : ""}${
-          cfg.section.text.trim() ? `    <p class="bnk-section__text">${esc(cfg.section.text)}</p>\n` : ""
-        }  </div>\n`
-      : "";
   const bannerMarkup = cfg.banner.enabled
     ? `\n  <div class="bnk-banner">
     <div class="bnk-banner__copy">
@@ -916,23 +850,48 @@ ${cfg.section.title.trim() ? `    <h2 class="bnk-section__title">${esc(cfg.secti
   </div>\n`
     : "";
 
-  const script = cfg.moveSearch
+  /* ---------- injected script: relocate search / Ask AI + header image ---------- */
+  const needsScript = cfg.searchMode !== "native" || cfg.headerImage.enabled;
+  const script = needsScript
     ? `
 <script>
   /* Theming is handled entirely in CSS above. This script only relocates
-     ReadMe's native search + Ask AI controls into the hero row. */
+     ReadMe's native search + Ask AI controls and (optionally) inserts a
+     header background image between the header top row and the subnav. */
   (function () {
-    function placeActions() {
-      var actions = document.getElementById("rm-actions");
-      if (!actions) return;
+    var MODE = ${JSON.stringify(cfg.searchMode)};
+    var HAS_IMG = ${cfg.headerImage.enabled ? "true" : "false"};
+    function place() {
       var search = document.querySelector(".rm-Header-search");
       var askai = document.querySelector(".rm-AskAi");
-      if (search && search.parentElement !== actions) actions.appendChild(search);
-      if (askai && askai.parentElement !== actions) actions.appendChild(askai);
+      if (MODE === "hero") {
+        var actions = document.getElementById("rm-actions");
+        if (actions) {
+          if (search && search.parentElement !== actions) actions.appendChild(search);
+          if (askai && askai.parentElement !== actions) actions.appendChild(askai);
+        }
+      } else if (MODE === "header") {
+        var top = document.querySelector(".rm-Header-top");
+        if (top) {
+          var box = top.querySelector(".bnk-header-center");
+          if (!box) { box = document.createElement("div"); box.className = "bnk-header-center"; top.appendChild(box); }
+          if (search && search.parentElement !== box) box.appendChild(search);
+          if (askai && askai.parentElement !== box) box.appendChild(askai);
+        }
+      }
+      if (HAS_IMG) {
+        var header = document.querySelector(".rm-Header");
+        if (header && !header.querySelector(".bnk-headerbg")) {
+          var bg = document.createElement("div");
+          bg.className = "bnk-headerbg";
+          var bottom = header.querySelector(".rm-Header-bottom");
+          if (bottom) header.insertBefore(bg, bottom); else header.appendChild(bg);
+        }
+      }
     }
-    placeActions();
+    place();
     if (document.body) {
-      new MutationObserver(placeActions).observe(document.body, { childList: true, subtree: true });
+      new MutationObserver(place).observe(document.body, { childList: true, subtree: true });
     }
   })();
 <\/script>`
@@ -940,18 +899,18 @@ ${cfg.section.title.trim() ? `    <h2 class="bnk-section__title">${esc(cfg.secti
 
   return `<!--
   Global Landing Page — generated with GLP Builder
-  Template: ${TEMPLATES[T].label} · Fonts: ${FONTS[cfg.fonts].label}${liquid ? " · Cards: Liquid (auto from child projects)" : ""}
+  Fonts: ${F.label} · ${sections.length} section${sections.length === 1 ? "" : "s"}${hasLiquid ? " · Liquid cards (auto from child projects)" : ""}
   Paste into: dash.readme.io → your group → Global Landing Page
 ${
-  liquid
+  hasLiquid
     ? `
-  Liquid: cards render one-per-child-project using ReadMe's templating
-  (see docs.readme.com/ent/docs/creating-a-global-landing-page). Properties
-  used: parentProject.childrenProjects, child.name, child.subpath,
+  Liquid: one or more sections render one card per child project using
+  ReadMe's templating (see docs.readme.com/ent/docs/creating-a-global-landing-page).
+  Properties used: parentProject.childrenProjects, child.name, child.subpath,
   child.description, child.guides (categories) → category.title.
 `
     : ""
-}
+}  Icons: emoji render as text; "fa-…" icons use ReadMe's built-in Font Awesome.
   Theming: ReadMe's NATIVE dark-mode selectors, no JS theming.
     - Light / default : base .bnk-landing variables
     - Explicit dark   : [data-color-mode="dark"] .bnk-landing
@@ -959,14 +918,17 @@ ${
 -->
 <style>
   @import url('${F.importUrl}');
-${headerCSS}
+${headerCSS}${headerImageCSS}${headerCenterCSS}
   /* ===== GLOBAL THEME MAP — LIGHT / DEFAULT ===== */
   .bnk-landing {
     --bnk-ink-1: #52525B;
     --bnk-ink-2: #71717A;
     --bnk-heading: #18181B;
 
-    /* Accent cycle (light) */
+    /* Primary accent (hero chip / buttons / banner / ticker) */
+    --bnk-accent: ${primary.light};
+
+    /* Per-section accent cycles (light) */
 ${lightAccents}
 
     /* Filled CTA foreground */
@@ -995,6 +957,7 @@ ${lightAccents}
     --bnk-ink-2: #8E8E96;
     --bnk-heading: #ECEFF4;
 
+    --bnk-accent: ${primary.dark};
 ${darkAccents("      ")}
     --bnk-cta-on: #0B0F14;
 
@@ -1011,6 +974,7 @@ ${darkAccents("      ")}
       --bnk-ink-2: #8E8E96;
       --bnk-heading: #ECEFF4;
 
+      --bnk-accent: ${primary.dark};
 ${darkAccents("        ")}
       --bnk-cta-on: #0B0F14;
 
@@ -1050,7 +1014,9 @@ ${chipCSS}
     color: var(--bnk-heading) !important;
   }
   .bnk-hero__sub { margin: 0; font-size: 14.5px; line-height: 1.5; color: var(--bnk-ink-2) !important; }
-${archiveHeroCSS}${heroButtonsCSS}${actionsCSS}${sectionCSS}${gridCSS}${cardCSS}
+${heroButtonsCSS}${actionsCSS}${sectionCSS}${gridRules}
+${cardCSS}
+${accentRules}
   .rm-arrow { display: inline-block; transition: transform 200ms ease; }
 ${bannerCSS}
   /* ===== Footer ===== */
@@ -1070,10 +1036,8 @@ ${tickerMarkup}  <div class="bnk-hero">
 ${heroEyebrow}${heroChip}    <h1 class="bnk-hero__title">${esc(cfg.hero.title)}</h1>
     <p class="bnk-hero__sub">${esc(cfg.hero.subtitle)}</p>
 ${heroButtons}  </div>
-${cfg.moveSearch ? '\n  <div class="bnk-actions" id="rm-actions"></div>\n' : ""}${sectionMarkup}
-  <div class="bnk-grid">
-${cardsBlock}
-  </div>
+${cfg.searchMode === "hero" ? '\n  <div class="bnk-actions" id="rm-actions"></div>\n' : ""}
+${sectionsMarkup}
 ${bannerMarkup}${cfg.footer.trim() ? `\n  <p class="bnk-footer">${esc(cfg.footer)}</p>` : ""}
 </div>
 ${script}
@@ -1083,7 +1047,8 @@ ${script}
 /* ============================================================
    NAIVE LIQUID EXPANSION — for the live preview only.
    ReadMe renders the real Liquid server-side; here we substitute
-   three sample child projects so the preview looks real.
+   sample child projects so the preview looks real. Handles any
+   number of per-section child-project loops.
    ============================================================ */
 const SAMPLE_PROJECTS = [
   { name: "Payments API", subpath: "payments", desc: "Accept payments, manage refunds, and reconcile settlements." },
@@ -1096,20 +1061,18 @@ function expandLiquidForPreview(html) {
   if (!html.includes("{%")) return html;
   let out = html;
 
-  /* inner loop: guide categories */
+  /* inner loop: guide categories (global — same sample list for every card) */
   out = out.replace(/\{%-?\s*for category in child\.guides[^%]*%\}([\s\S]*?)\{%-?\s*endfor\s*-?%\}/g, (_, inner) =>
     SAMPLE_CATEGORIES.map((cat) => inner.replace(/\{\{\s*category\.title\s*\}\}/g, cat)).join("")
   );
 
-  /* accent cycle length */
-  const nm = out.match(/modulo:\s*(\d+)/);
-  const N = nm ? Math.max(1, parseInt(nm[1], 10)) : 3;
-  out = out.replace(/\{%-?\s*assign[^%]*%\}\n?/g, "");
-
-  /* outer loop: child projects */
-  out = out.replace(/\{%-?\s*for child in parentProject\.childrenProjects\s*-?%\}([\s\S]*?)\{%-?\s*endfor\s*-?%\}/g, (_, inner) =>
-    SAMPLE_PROJECTS.map((p, i) =>
-      inner
+  /* outer loops: child projects — each loop carries its own `modulo: N` */
+  out = out.replace(/\{%-?\s*for child in parentProject\.childrenProjects\s*-?%\}([\s\S]*?)\{%-?\s*endfor\s*-?%\}/g, (_, block) => {
+    const nm = block.match(/modulo:\s*(\d+)/);
+    const N = nm ? Math.max(1, parseInt(nm[1], 10)) : 3;
+    const body = block.replace(/\{%-?\s*assign[^%]*%\}\n?/g, "");
+    return SAMPLE_PROJECTS.map((p, i) =>
+      body
         .replace(/\{%\s*if forloop\.index < 10\s*%\}0\{%\s*endif\s*%\}/g, "0")
         .replace(/\{\{\s*forloop\.index0\s*\}\}/g, String(i))
         .replace(/\{\{\s*forloop\.index\s*\}\}/g, String(i + 1))
@@ -1117,8 +1080,8 @@ function expandLiquidForPreview(html) {
         .replace(/\{\{\s*child\.name\s*\}\}/g, p.name)
         .replace(/\{\{\s*child\.subpath\s*\}\}/g, p.subpath)
         .replace(/\{\{\s*child\.description[^}]*\}\}/g, p.desc)
-    ).join("\n")
-  );
+    ).join("\n");
+  });
 
   /* parent tokens + anything left over */
   out = out
@@ -1137,6 +1100,7 @@ function buildPreviewDoc(userHtml, mode) {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
 <style>
   html, body { margin: 0; padding: 0; }
   body {
@@ -1327,36 +1291,15 @@ const APP_CSS = `
   .glp-toggle__text b { display: block; font-weight: 500; color: var(--ink); font-size: 13px; }
   .glp-toggle__text span { font-size: 11.5px; color: var(--ink-3); line-height: 1.4; }
 
-  /* template picker */
-  .glp-tpl { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
-  .glp-tpl__opt {
-    border: 1px solid var(--line-2); border-radius: 10px;
-    background: var(--panel-2); cursor: pointer;
-    padding: 9px 8px 8px; text-align: left;
-    color: var(--ink-2); font-family: inherit;
+  /* sub-block heading + granular style checkbox grid */
+  .glp-sub {
+    font-family: 'Space Mono', monospace; font-size: 10px;
+    letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3);
+    margin: 16px 0 8px;
   }
-  .glp-tpl__opt.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); color: var(--ink); }
-  .glp-tpl__thumb {
-    height: 46px; border-radius: 6px; margin-bottom: 7px;
-    background: var(--bg); border: 1px solid var(--line);
-    display: flex; gap: 3px; padding: 5px; align-items: stretch;
-  }
-  .glp-tpl__thumb i { display: block; background: var(--line-2); border-radius: 2px; }
-  .glp-tpl__name { font-size: 11px; font-weight: 600; display: block; line-height: 1.25; }
-
-  .thumb-audience i { flex: 1; }
-  .thumb-col { flex-direction: column; }
-  .thumb-col .t-hero { height: 9px; width: 55%; flex: none; }
-  .thumb-col .t-row { flex: 1; display: flex; gap: 3px; }
-  .thumb-col .t-row i { flex: 1; }
-  .thumb-bento { flex-direction: column; }
-  .thumb-bento .t-row { flex: 1; display: flex; gap: 3px; }
-  .thumb-bento .t-row i.big { flex: 2; }
-  .thumb-bento .t-row i.small { flex: 1; }
-  .thumb-grid { flex-wrap: wrap; align-content: stretch; }
-  .thumb-grid i { width: calc(33.4% - 3px); flex: none; }
-  .thumb-rows { flex-direction: column; }
-  .thumb-rows i { flex: 1; width: 100%; }
+  .glp-checks { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 14px; margin: 2px 0 12px; }
+  .glp-check { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--ink-2); cursor: pointer; }
+  .glp-check input { accent-color: var(--accent); flex: none; }
 
   /* font picker */
   .glp-font {
@@ -1398,6 +1341,10 @@ const APP_CSS = `
   .glp-iconbtn:disabled { opacity: .3; cursor: default; }
   .glp-card__body { padding: 4px 12px 14px; border-top: 1px solid var(--line); }
 
+  /* nested section container gets a subtle accent edge */
+  .glp-section > .glp-card__head { background: rgba(76,141,255,.06); }
+  .glp-section > .glp-card__body { padding: 8px 12px 14px; }
+
   .glp-swatches { display: flex; gap: 7px; flex-wrap: wrap; align-items: center; }
   .glp-swatch {
     width: 26px; height: 26px; border-radius: 8px; cursor: pointer;
@@ -1412,7 +1359,7 @@ const APP_CSS = `
   .glp-custom-pair input[type=color] { width: 34px; height: 26px; border: 1px solid var(--line-2); border-radius: 6px; background: var(--bg); padding: 2px; cursor: pointer; }
   .glp-custom-pair span { font-size: 11px; color: var(--ink-3); }
 
-  .glp-seg { display: inline-flex; background: var(--bg); border: 1px solid var(--line-2); border-radius: 8px; padding: 3px; gap: 2px; }
+  .glp-seg { display: inline-flex; background: var(--bg); border: 1px solid var(--line-2); border-radius: 8px; padding: 3px; gap: 2px; flex-wrap: wrap; }
   .glp-seg button {
     border: 0; background: transparent; color: var(--ink-2);
     font-size: 12px; padding: 5px 12px; border-radius: 6px; cursor: pointer; font-family: inherit;
@@ -1550,50 +1497,55 @@ function Slider({ label, value, min, max, step = 1, unit = "px", onChange }) {
   );
 }
 
-/* ---------- template picker (7 options) ---------- */
-const TPL_THUMBS = {
-  audience: (
-    <span className="glp-tpl__thumb thumb-audience"><i /><i /><i /></span>
-  ),
-  solutions: (
-    <span className="glp-tpl__thumb thumb-col">
-      <i className="t-hero" />
-      <span className="t-row"><i /><i /><i /><i /></span>
-    </span>
-  ),
-  launchpad: (
-    <span className="glp-tpl__thumb thumb-col">
-      <i className="t-hero" style={{ width: "70%", alignSelf: "center" }} />
-      <span className="t-row"><i /><i /><i /></span>
-    </span>
-  ),
-  bento: (
-    <span className="glp-tpl__thumb thumb-bento">
-      <span className="t-row"><i className="big" /><i className="small" /></span>
-      <span className="t-row"><i className="small" /><i className="big" /></span>
-    </span>
-  ),
-  helpcenter: (
-    <span className="glp-tpl__thumb thumb-grid"><i /><i /><i /><i /><i /><i /></span>
-  ),
-  tiles: (
-    <span className="glp-tpl__thumb thumb-grid"><i /><i /><i /><i /><i /><i /></span>
-  ),
-  archive: (
-    <span className="glp-tpl__thumb thumb-rows"><i /><i /><i /></span>
-  ),
-};
-
-function TemplatePicker({ value, onChange }) {
+function StyleCheck({ checked, label, onChange }) {
   return (
-    <div className="glp-tpl">
-      {Object.entries(TEMPLATES).map(([key, t]) => (
-        <button key={key} type="button" className={"glp-tpl__opt" + (value === key ? " on" : "")} onClick={() => onChange(key)} title={t.hint}>
-          {TPL_THUMBS[key]}
-          <span className="glp-tpl__name">{t.label}</span>
-        </button>
-      ))}
-    </div>
+    <label className="glp-check">
+      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+      {label}
+    </label>
+  );
+}
+
+/* icon input — emoji character or a Font Awesome icon name + style */
+function IconField({ label, obj, onChange }) {
+  const type = obj.iconType || "emoji";
+  return (
+    <Field label={label}>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        <Seg
+          value={type}
+          onChange={(v) => onChange({ iconType: v })}
+          options={[
+            { value: "emoji", label: "Emoji" },
+            { value: "fa", label: "Font Awesome" },
+          ]}
+        />
+        {type === "emoji" ? (
+          <input className="glp-input" style={{ width: 80 }} value={obj.icon} onChange={(e) => onChange({ icon: e.target.value })} />
+        ) : (
+          <>
+            <input
+              className="glp-input"
+              style={{ flex: 1, minWidth: 110 }}
+              value={obj.icon}
+              onChange={(e) => onChange({ icon: e.target.value })}
+              placeholder="e.g. rocket, book-open"
+            />
+            <select className="glp-select" style={{ width: 104 }} value={obj.faStyle || "solid"} onChange={(e) => onChange({ faStyle: e.target.value })}>
+              <option value="solid">Solid</option>
+              <option value="regular">Regular</option>
+              <option value="light">Light</option>
+              <option value="brands">Brands</option>
+            </select>
+          </>
+        )}
+      </div>
+      {type === "fa" && (
+        <div style={{ fontSize: 11, color: "var(--ink-3)", marginTop: 5, lineHeight: 1.45 }}>
+          Font Awesome icon name without the <code>fa-</code> prefix. Light &amp; duotone are Pro-only and may not show in the preview.
+        </div>
+      )}
+    </Field>
   );
 }
 
@@ -1639,9 +1591,8 @@ function AccentSwatches({ selected, onSelect, multi = false, customCard = null, 
 }
 
 /* ---------- card editor ---------- */
-function CardEditor({ card, index, count, template, open, onToggle, onChange, onMove, onRemove }) {
+function CardEditor({ card, index, count, style, open, onToggle, onChange, onMove, onRemove }) {
   const acc = cardAccent(card);
-  const spec = TSPEC[template];
   const set = (patch) => onChange({ ...card, ...patch });
   const setPeek = (i, val) => {
     const items = [...card.peekItems];
@@ -1676,17 +1627,13 @@ function CardEditor({ card, index, count, template, open, onToggle, onChange, on
             <textarea className="glp-textarea" value={card.blurb} onChange={(e) => set({ blurb: e.target.value })} />
           </Field>
 
-          {spec.icon && (
-            <Field label="Icon (emoji or 1–2 characters)">
-              <input className="glp-input" style={{ width: 90 }} value={card.icon} onChange={(e) => set({ icon: e.target.value })} />
-            </Field>
-          )}
-          {(spec.badge || spec.file) && (
+          {style.icon && <IconField label="Icon" obj={card} onChange={set} />}
+          {(style.badge || style.file) && (
             <div className="glp-row2">
-              <Field label={spec.file ? "Label after File_0N (optional)" : "Badge text"}>
+              <Field label={style.file ? "Label after File_0N (optional)" : "Badge text"}>
                 <input className="glp-input" value={card.eyebrow} onChange={(e) => set({ eyebrow: e.target.value })} />
               </Field>
-              {spec.badge && (
+              {style.badge && (
                 <Field label="Badge icon">
                   <Seg
                     value={card.badge}
@@ -1705,7 +1652,7 @@ function CardEditor({ card, index, count, template, open, onToggle, onChange, on
             <AccentSwatches selected={card.accent} onSelect={(k) => set({ accent: k })} customCard={card} onCustom={set} />
           </Field>
 
-          {spec.cta && !spec.ctaPlain && (
+          {style.cta && !style.ctaPlain && (
             <div className="glp-row2">
               <Field label="Button text">
                 <input className="glp-input" value={card.ctaText} onChange={(e) => set({ ctaText: e.target.value })} />
@@ -1722,7 +1669,7 @@ function CardEditor({ card, index, count, template, open, onToggle, onChange, on
               </Field>
             </div>
           )}
-          {spec.cta && spec.ctaPlain && (
+          {style.cta && style.ctaPlain && (
             <Field label="Link text (e.g. Open Folder)">
               <input className="glp-input" value={card.ctaText} onChange={(e) => set({ ctaText: e.target.value })} />
             </Field>
@@ -1736,7 +1683,7 @@ function CardEditor({ card, index, count, template, open, onToggle, onChange, on
             </span>
           </label>
 
-          {spec.peek && (
+          {style.peek && (
             <>
               <Field label="List heading (e.g. Popular, Inside)">
                 <input className="glp-input" value={card.peekLabel} onChange={(e) => set({ peekLabel: e.target.value })} />
@@ -1768,6 +1715,224 @@ function CardEditor({ card, index, count, template, open, onToggle, onChange, on
                   <span>Show a small → in the accent color before each list item.</span>
                 </span>
               </label>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------- Liquid (auto-from-projects) controls for a section ---------- */
+function LiquidControls({ section, setLiq, toggleLiqAccent }) {
+  const st = section.style;
+  const Q = section.liquid;
+  return (
+    <>
+      <div className="glp-note">
+        One card renders per child project in your group, using ReadMe's Liquid templating — add or remove a project and the page updates
+        itself. Titles come from <code>child.name</code>, links from <code>/child.subpath</code>, and the list can show each project's top
+        guide categories.
+      </div>
+      {(st.badge || st.file) && (
+        <div className="glp-row2">
+          <Field label={st.file ? "Label after File_0N" : "Badge text (all cards)"}>
+            <input className="glp-input" value={Q.eyebrow} onChange={(e) => setLiq({ eyebrow: e.target.value })} />
+          </Field>
+          {st.badge && (
+            <Field label="Badge icon">
+              <Seg
+                value={Q.badge}
+                onChange={(v) => setLiq({ badge: v })}
+                options={[
+                  { value: "dot", label: "● Open" },
+                  { value: "lock", label: "🔒 Locked" },
+                ]}
+              />
+            </Field>
+          )}
+        </div>
+      )}
+      {st.icon && <IconField label="Icon (all cards)" obj={Q} onChange={setLiq} />}
+      <Field label="Fallback description (used when a project has none)">
+        <textarea className="glp-textarea" value={Q.blurbFallback} onChange={(e) => setLiq({ blurbFallback: e.target.value })} />
+      </Field>
+      {st.peek && (
+        <>
+          <label className="glp-toggle">
+            <input type="checkbox" checked={Q.peek} onChange={(e) => setLiq({ peek: e.target.checked })} />
+            <span className="glp-toggle__text">
+              <b>List each project's guide categories</b>
+              <span>Pulls the first few category titles from each child project's guides.</span>
+            </span>
+          </label>
+          {Q.peek && (
+            <div className="glp-row2">
+              <Field label="List heading">
+                <input className="glp-input" value={Q.peekLabel} onChange={(e) => setLiq({ peekLabel: e.target.value })} />
+              </Field>
+              <Slider label="Categories shown" value={Q.peekCount} min={1} max={5} unit="" onChange={(v) => setLiq({ peekCount: v })} />
+            </div>
+          )}
+        </>
+      )}
+      {st.cta && (
+        <div className="glp-row2">
+          <Field label={st.ctaPlain ? "Link text" : "Button text (all cards)"}>
+            <input className="glp-input" value={Q.ctaText} onChange={(e) => setLiq({ ctaText: e.target.value })} />
+          </Field>
+          {!st.ctaPlain && (
+            <Field label="Button style">
+              <Seg
+                value={Q.ctaStyle}
+                onChange={(v) => setLiq({ ctaStyle: v })}
+                options={[
+                  { value: "filled", label: "Filled" },
+                  { value: "ghost", label: "Outlined" },
+                ]}
+              />
+            </Field>
+          )}
+        </div>
+      )}
+      <Field label="Accent cycle (cards rotate through the selected colors)">
+        <AccentSwatches multi selected={Q.accents} onSelect={toggleLiqAccent} />
+      </Field>
+    </>
+  );
+}
+
+/* ---------- section editor ---------- */
+function SectionEditor({ section, index, count, open, onToggle, onMove, onRemove, onChange, cardOps, openCard, setOpenCard }) {
+  const set = (patch) => onChange({ ...section, ...patch });
+  const setStyle = (patch) => onChange({ ...section, style: { ...section.style, ...patch } });
+  const setLay = (patch) => onChange({ ...section, layout: { ...section.layout, ...patch } });
+  const setLiq = (patch) => onChange({ ...section, liquid: { ...section.liquid, ...patch } });
+  const st = section.style;
+  const liquidOn = section.source === "liquid";
+  const toggleLiqAccent = (key) =>
+    setLiq({
+      accents: section.liquid.accents.includes(key)
+        ? section.liquid.accents.length > 1
+          ? section.liquid.accents.filter((k) => k !== key)
+          : section.liquid.accents
+        : [...section.liquid.accents, key],
+    });
+
+  return (
+    <div className="glp-card glp-section">
+      <div className="glp-card__head" onClick={onToggle}>
+        <span className="glp-card__name">{section.heading || `Section ${index + 1}`}</span>
+        <span className="glp-card__meta">{liquidOn ? "auto" : section.cards.length + " cards"}</span>
+        <button className="glp-iconbtn" title="Move up" disabled={index === 0}
+          onClick={(e) => { e.stopPropagation(); onMove(-1); }} type="button">&#8593;</button>
+        <button className="glp-iconbtn" title="Move down" disabled={index === count - 1}
+          onClick={(e) => { e.stopPropagation(); onMove(1); }} type="button">&#8595;</button>
+        <button className="glp-iconbtn" title="Delete section" disabled={count === 1}
+          onClick={(e) => { e.stopPropagation(); onRemove(); }} type="button">&#10005;</button>
+        <span className="glp-iconbtn" style={{ transform: open ? "rotate(90deg)" : "none", transition: "transform 150ms" }}>&#8250;</span>
+      </div>
+      {open && (
+        <div className="glp-card__body">
+          <Field label="Section heading (blank to hide)">
+            <input className="glp-input" value={section.heading} onChange={(e) => set({ heading: e.target.value })} placeholder="e.g. For developers" />
+          </Field>
+          <Field label="Intro text (blank to hide)">
+            <textarea className="glp-textarea" value={section.intro} onChange={(e) => set({ intro: e.target.value })} />
+          </Field>
+          <Field label="Text alignment (independent of the hero)">
+            <Seg
+              value={section.align}
+              onChange={(v) => set({ align: v })}
+              options={[
+                { value: "center", label: "Centered" },
+                { value: "left", label: "Left" },
+              ]}
+            />
+          </Field>
+
+          <div className="glp-sub">Card style</div>
+          <div className="glp-checks">
+            <StyleCheck checked={!!st.icon} label="Icon tile" onChange={(v) => setStyle({ icon: v })} />
+            <StyleCheck checked={!!st.badge} label="Badge / eyebrow" onChange={(v) => setStyle({ badge: v })} />
+            <StyleCheck checked={!!st.num} label="Number (01)" onChange={(v) => setStyle({ num: v })} />
+            <StyleCheck checked={!!st.file} label="File_0N label" onChange={(v) => setStyle({ file: v })} />
+            <StyleCheck checked={!!st.bar} label="Top accent bar" onChange={(v) => setStyle({ bar: v })} />
+            <StyleCheck checked={!!st.peek} label="Preview list" onChange={(v) => setStyle({ peek: v })} />
+            <StyleCheck checked={!!st.cta} label="CTA button" onChange={(v) => setStyle({ cta: v })} />
+            <StyleCheck checked={!!st.ctaPlain} label="Plain-text CTA" onChange={(v) => setStyle({ ctaPlain: v })} />
+            <StyleCheck checked={!!st.anchor} label="Whole card links" onChange={(v) => setStyle({ anchor: v })} />
+            <StyleCheck checked={!!st.mono} label="Mono / uppercase" onChange={(v) => setStyle({ mono: v })} />
+          </div>
+          <Field label="Card density">
+            <Seg
+              value={st.density}
+              onChange={(v) => setStyle({ density: v })}
+              options={[
+                { value: "roomy", label: "Roomy" },
+                { value: "comfortable", label: "Comfortable" },
+                { value: "compact", label: "Compact" },
+              ]}
+            />
+          </Field>
+          <Slider label="Corner radius" value={st.radius} min={0} max={24} onChange={(v) => setStyle({ radius: v })} />
+
+          <div className="glp-sub">Grid</div>
+          <label className="glp-toggle" style={{ paddingTop: 0 }}>
+            <input type="checkbox" checked={section.layout.bento} onChange={(e) => setLay({ bento: e.target.checked })} />
+            <span className="glp-toggle__text">
+              <b>Bento grid</b>
+              <span>Asymmetric mixed-size 6-column layout.</span>
+            </span>
+          </label>
+          {!section.layout.bento && (
+            <Slider label="Minimum column width (cards per row)" value={section.layout.colMin} min={180} max={360} onChange={(v) => setLay({ colMin: v })} />
+          )}
+          <Slider label="Gap between cards" value={section.layout.gap} min={12} max={36} onChange={(v) => setLay({ gap: v })} />
+          <label className="glp-toggle">
+            <input type="checkbox" checked={section.layout.autoH} onChange={(e) => setLay({ autoH: e.target.checked })} />
+            <span className="glp-toggle__text">
+              <b>Auto card height</b>
+              <span>Let content decide the height instead of a fixed minimum.</span>
+            </span>
+          </label>
+          {!section.layout.autoH && (
+            <Slider label="Card minimum height" value={section.layout.cardMinH} min={140} max={520} step={4} onChange={(v) => setLay({ cardMinH: v })} />
+          )}
+
+          <div className="glp-sub">Cards</div>
+          <Field label="Card source">
+            <Seg
+              value={section.source}
+              onChange={(v) => set({ source: v })}
+              options={[
+                { value: "static", label: "Manual cards" },
+                { value: "liquid", label: "Auto from projects" },
+              ]}
+            />
+          </Field>
+
+          {liquidOn ? (
+            <LiquidControls section={section} setLiq={setLiq} toggleLiqAccent={toggleLiqAccent} />
+          ) : (
+            <>
+              {section.cards.map((card, i) => (
+                <CardEditor
+                  key={card.id}
+                  card={card}
+                  index={i}
+                  count={section.cards.length}
+                  style={st}
+                  open={openCard === card.id}
+                  onToggle={() => setOpenCard(openCard === card.id ? null : card.id)}
+                  onChange={(next) => cardOps.set(card.id, next)}
+                  onMove={(dir) => cardOps.move(card.id, dir)}
+                  onRemove={() => cardOps.remove(card.id)}
+                />
+              ))}
+              <button className="glp-add" type="button" onClick={cardOps.add} disabled={section.cards.length >= 12}>
+                + Add card ({section.cards.length}/12)
+              </button>
             </>
           )}
         </div>
@@ -1836,6 +2001,7 @@ function App() {
   });
   const [override, setOverride] = useState(null);
   const [openCard, setOpenCard] = useState(null);
+  const [openSection, setOpenSection] = useState(() => DEFAULT_CONFIG.sections[0].id);
   const [mode, setMode] = useState("light");
   const [device, setDevice] = useState("desktop");
   const [copied, setCopied] = useState(false);
@@ -1849,50 +2015,76 @@ function App() {
   const setTicker = (p) => setConfig((c) => ({ ...c, ticker: { ...c.ticker, ...p } }));
   const setLayout = (p) => setConfig((c) => ({ ...c, layout: { ...c.layout, ...p } }));
   const setBanner = (p) => setConfig((c) => ({ ...c, banner: { ...c.banner, ...p } }));
-  const setSection = (p) => setConfig((c) => ({ ...c, section: { ...c.section, ...p } }));
-  const setLiquid = (p) => setConfig((c) => ({ ...c, liquid: { ...c.liquid, ...p } }));
+  const setHeaderImage = (p) => setConfig((c) => ({ ...c, headerImage: { ...c.headerImage, ...p } }));
 
-  const setTemplate = (t) =>
+  /* ---- section ops ---- */
+  const updateSection = (id, next) => setConfig((c) => ({ ...c, sections: c.sections.map((s) => (s.id === id ? next : s)) }));
+  const moveSection = (id, dir) =>
     setConfig((c) => {
-      const presets = {
-        audience: { colMin: 258, autoH: false },
-        solutions: { colMin: 240, autoH: true },
-        launchpad: { colMin: 250, autoH: true },
-        bento: { colMin: 240, autoH: false, cardMinH: 220 },
-        helpcenter: { colMin: 250, autoH: true },
-        tiles: { colMin: 220, autoH: true },
-        archive: { colMin: 260, autoH: true },
-      };
-      return { ...c, template: t, layout: { ...c.layout, ...presets[t] } };
-    });
-
-  const setCard = (id, next) => setConfig((c) => ({ ...c, cards: c.cards.map((k) => (k.id === id ? next : k)) }));
-  const moveCard = (id, dir) =>
-    setConfig((c) => {
-      const i = c.cards.findIndex((k) => k.id === id);
+      const i = c.sections.findIndex((s) => s.id === id);
       const j = i + dir;
-      if (j < 0 || j >= c.cards.length) return c;
-      const cards = [...c.cards];
-      [cards[i], cards[j]] = [cards[j], cards[i]];
-      return { ...c, cards };
+      if (j < 0 || j >= c.sections.length) return c;
+      const arr = [...c.sections];
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+      return { ...c, sections: arr };
     });
-  const removeCard = (id) => setConfig((c) => (c.cards.length > 1 ? { ...c, cards: c.cards.filter((k) => k.id !== id) } : c));
-  const addCard = () =>
+  const removeSection = (id) => setConfig((c) => (c.sections.length > 1 ? { ...c, sections: c.sections.filter((s) => s.id !== id) } : c));
+  const addSection = () =>
     setConfig((c) => {
-      if (c.cards.length >= 12) return c;
+      if (c.sections.length >= 6) return c;
       const id = uid();
-      setOpenCard(id);
-      return { ...c, cards: [...c.cards, { ...CARD_DEFAULTS, id }] };
+      const ns = {
+        id,
+        heading: "New section",
+        intro: "",
+        align: "center",
+        source: "static",
+        style: { ...DEFAULT_STYLE },
+        layout: { ...DEFAULT_SECTION_LAYOUT },
+        liquid: { ...DEFAULT_LIQUID },
+        cards: [{ ...CARD_DEFAULTS, id: uid() }],
+      };
+      setOpenSection(id);
+      return { ...c, sections: [...c.sections, ns] };
     });
 
-  const toggleLiquidAccent = (key) =>
-    setLiquid({
-      accents: config.liquid.accents.includes(key)
-        ? config.liquid.accents.length > 1
-          ? config.liquid.accents.filter((k) => k !== key)
-          : config.liquid.accents
-        : [...config.liquid.accents, key],
-    });
+  /* ---- card ops scoped to a section ---- */
+  const cardOpsFor = (secId) => ({
+    set: (cardId, next) =>
+      setConfig((c) => ({
+        ...c,
+        sections: c.sections.map((s) => (s.id !== secId ? s : { ...s, cards: s.cards.map((k) => (k.id === cardId ? next : k)) })),
+      })),
+    move: (cardId, dir) =>
+      setConfig((c) => ({
+        ...c,
+        sections: c.sections.map((s) => {
+          if (s.id !== secId) return s;
+          const i = s.cards.findIndex((k) => k.id === cardId);
+          const j = i + dir;
+          if (j < 0 || j >= s.cards.length) return s;
+          const arr = [...s.cards];
+          [arr[i], arr[j]] = [arr[j], arr[i]];
+          return { ...s, cards: arr };
+        }),
+      })),
+    remove: (cardId) =>
+      setConfig((c) => ({
+        ...c,
+        sections: c.sections.map((s) => (s.id !== secId ? s : s.cards.length > 1 ? { ...s, cards: s.cards.filter((k) => k.id !== cardId) } : s)),
+      })),
+    add: () =>
+      setConfig((c) => ({
+        ...c,
+        sections: c.sections.map((s) => {
+          if (s.id !== secId) return s;
+          if (s.cards.length >= 12) return s;
+          const id = uid();
+          setOpenCard(id);
+          return { ...s, cards: [...s.cards, { ...CARD_DEFAULTS, id }] };
+        }),
+      })),
+  });
 
   const copyText = async (text) => {
     try {
@@ -1952,8 +2144,7 @@ function App() {
     }
   }, [config]);
 
-  const liquidOn = config.liquid.enabled;
-  const spec = TSPEC[config.template];
+  const hasLiquid = config.sections.some((s) => s.source === "liquid");
 
   return (
     <div className="glp">
@@ -2000,11 +2191,6 @@ function App() {
                   </button>
                 </div>
               )}
-
-              <details className="glp-sec" open>
-                <summary className="glp-sec__label">Template</summary>
-                <TemplatePicker value={config.template} onChange={setTemplate} />
-              </details>
 
               <details className="glp-sec" open>
                 <summary className="glp-sec__label">Typography</summary>
@@ -2107,7 +2293,7 @@ function App() {
                   <input type="checkbox" checked={config.ticker.enabled} onChange={(e) => setTicker({ enabled: e.target.checked })} />
                   <span className="glp-toggle__text">
                     <b>Announcement ticker</b>
-                    <span>Scrolling marquee strip at the very top (Terminal Archive style).</span>
+                    <span>Scrolling marquee strip at the very top.</span>
                   </span>
                 </label>
                 {config.ticker.enabled && (
@@ -2119,13 +2305,17 @@ function App() {
 
               <details className="glp-sec" open>
                 <summary className="glp-sec__label">Hub chrome</summary>
-                <label className="glp-toggle">
-                  <input type="checkbox" checked={config.moveSearch} onChange={(e) => patch({ moveSearch: e.target.checked })} />
-                  <span className="glp-toggle__text">
-                    <b>Center search &amp; Ask AI under the title</b>
-                    <span>Moves ReadMe's native search bar and Ask AI button out of the header into a hero row.</span>
-                  </span>
-                </label>
+                <Field label="Search &amp; Ask AI placement (Ask AI always sits beside search)">
+                  <Seg
+                    value={config.searchMode}
+                    onChange={(v) => patch({ searchMode: v })}
+                    options={[
+                      { value: "native", label: "Native header" },
+                      { value: "header", label: "Centered in header" },
+                      { value: "hero", label: "Under hero" },
+                    ]}
+                  />
+                </Field>
                 <label className="glp-toggle">
                   <input type="checkbox" checked={config.flattenHeader} onChange={(e) => patch({ flattenHeader: e.target.checked })} />
                   <span className="glp-toggle__text">
@@ -2133,138 +2323,50 @@ function App() {
                     <span>Removes the header background and second nav row on this page only.</span>
                   </span>
                 </label>
-              </details>
-
-              <details className="glp-sec" open>
-                <summary className="glp-sec__label">Section heading</summary>
-                <Field label="Heading above the cards (blank to hide)">
-                  <input
-                    className="glp-input"
-                    value={config.section.title}
-                    onChange={(e) => setSection({ title: e.target.value })}
-                    placeholder="e.g. Get to know our solutions"
-                  />
-                </Field>
-                <Field label="Intro text">
-                  <textarea className="glp-textarea" value={config.section.text} onChange={(e) => setSection({ text: e.target.value })} />
-                </Field>
-              </details>
-
-              <details className="glp-sec" open>
-                <summary className="glp-sec__label">Cards</summary>
-                <Field label="Card source">
-                  <Seg
-                    value={liquidOn ? "liquid" : "static"}
-                    onChange={(v) => setLiquid({ enabled: v === "liquid" })}
-                    options={[
-                      { value: "static", label: "Manual cards" },
-                      { value: "liquid", label: "Auto from projects" },
-                    ]}
-                  />
-                </Field>
-
-                {liquidOn ? (
+                <label className="glp-toggle">
+                  <input type="checkbox" checked={config.headerImage.enabled} onChange={(e) => setHeaderImage({ enabled: e.target.checked })} />
+                  <span className="glp-toggle__text">
+                    <b>Header background image</b>
+                    <span>Full-width banner between the header top row and the subnav.</span>
+                  </span>
+                </label>
+                {config.headerImage.enabled && (
                   <>
-                    <div className="glp-note">
-                      One card renders per child project in your group, using ReadMe's Liquid templating — add or remove a project and the
-                      page updates itself. Titles come from <code>child.name</code>, links from <code>/child.subpath</code>, and the list can
-                      show each project's top guide categories.
-                    </div>
-                    {(spec.badge || spec.file) && (
-                      <div className="glp-row2">
-                        <Field label={spec.file ? "Label after File_0N" : "Badge text (all cards)"}>
-                          <input className="glp-input" value={config.liquid.eyebrow} onChange={(e) => setLiquid({ eyebrow: e.target.value })} />
-                        </Field>
-                        {spec.badge && (
-                          <Field label="Badge icon">
-                            <Seg
-                              value={config.liquid.badge}
-                              onChange={(v) => setLiquid({ badge: v })}
-                              options={[
-                                { value: "dot", label: "● Open" },
-                                { value: "lock", label: "🔒 Locked" },
-                              ]}
-                            />
-                          </Field>
-                        )}
-                      </div>
-                    )}
-                    {spec.icon && (
-                      <Field label="Icon (all cards)">
-                        <input className="glp-input" style={{ width: 90 }} value={config.liquid.icon} onChange={(e) => setLiquid({ icon: e.target.value })} />
-                      </Field>
-                    )}
-                    <Field label="Fallback description (used when a project has none)">
-                      <textarea className="glp-textarea" value={config.liquid.blurbFallback} onChange={(e) => setLiquid({ blurbFallback: e.target.value })} />
+                    <Field label="Image URL">
+                      <input className="glp-input" value={config.headerImage.url} onChange={(e) => setHeaderImage({ url: e.target.value })} placeholder="https://…/banner.jpg" />
                     </Field>
-                    {spec.peek && (
-                      <>
-                        <label className="glp-toggle">
-                          <input type="checkbox" checked={config.liquid.peek} onChange={(e) => setLiquid({ peek: e.target.checked })} />
-                          <span className="glp-toggle__text">
-                            <b>List each project's guide categories</b>
-                            <span>Pulls the first few category titles from each child project's guides.</span>
-                          </span>
-                        </label>
-                        {config.liquid.peek && (
-                          <div className="glp-row2">
-                            <Field label="List heading">
-                              <input className="glp-input" value={config.liquid.peekLabel} onChange={(e) => setLiquid({ peekLabel: e.target.value })} />
-                            </Field>
-                            <Slider label="Categories shown" value={config.liquid.peekCount} min={1} max={5} unit="" onChange={(v) => setLiquid({ peekCount: v })} />
-                          </div>
-                        )}
-                      </>
-                    )}
-                    {spec.cta && (
-                      <div className="glp-row2">
-                        <Field label={spec.ctaPlain ? "Link text" : "Button text (all cards)"}>
-                          <input className="glp-input" value={config.liquid.ctaText} onChange={(e) => setLiquid({ ctaText: e.target.value })} />
-                        </Field>
-                        {!spec.ctaPlain && (
-                          <Field label="Button style">
-                            <Seg
-                              value={config.liquid.ctaStyle}
-                              onChange={(v) => setLiquid({ ctaStyle: v })}
-                              options={[
-                                { value: "filled", label: "Filled" },
-                                { value: "ghost", label: "Outlined" },
-                              ]}
-                            />
-                          </Field>
-                        )}
-                      </div>
-                    )}
-                    <Field label="Accent cycle (cards rotate through the selected colors)">
-                      <AccentSwatches multi selected={config.liquid.accents} onSelect={toggleLiquidAccent} />
-                    </Field>
-                  </>
-                ) : (
-                  <>
-                    {config.cards.map((card, i) => (
-                      <CardEditor
-                        key={card.id}
-                        card={card}
-                        index={i}
-                        count={config.cards.length}
-                        template={config.template}
-                        open={openCard === card.id}
-                        onToggle={() => setOpenCard(openCard === card.id ? null : card.id)}
-                        onChange={(next) => setCard(card.id, next)}
-                        onMove={(dir) => moveCard(card.id, dir)}
-                        onRemove={() => removeCard(card.id)}
-                      />
-                    ))}
-                    <button className="glp-add" type="button" onClick={addCard} disabled={config.cards.length >= 12}>
-                      + Add card ({config.cards.length}/12)
-                    </button>
+                    <Slider label="Banner height" value={config.headerImage.height} min={80} max={480} step={4} onChange={(v) => setHeaderImage({ height: v })} />
+                    <Slider label="Darken (tint)" value={config.headerImage.tint} min={0} max={80} unit="%" onChange={(v) => setHeaderImage({ tint: v })} />
                   </>
                 )}
               </details>
 
               <details className="glp-sec" open>
-                <summary className="glp-sec__label">Layout</summary>
-                <Field label="Page width">
+                <summary className="glp-sec__label">Sections</summary>
+                {config.sections.map((section, i) => (
+                  <SectionEditor
+                    key={section.id}
+                    section={section}
+                    index={i}
+                    count={config.sections.length}
+                    open={openSection === section.id}
+                    onToggle={() => setOpenSection(openSection === section.id ? null : section.id)}
+                    onMove={(dir) => moveSection(section.id, dir)}
+                    onRemove={() => removeSection(section.id)}
+                    onChange={(next) => updateSection(section.id, next)}
+                    cardOps={cardOpsFor(section.id)}
+                    openCard={openCard}
+                    setOpenCard={setOpenCard}
+                  />
+                ))}
+                <button className="glp-add" type="button" onClick={addSection} disabled={config.sections.length >= 6}>
+                  + Add section ({config.sections.length}/6)
+                </button>
+              </details>
+
+              <details className="glp-sec" open>
+                <summary className="glp-sec__label">Page width</summary>
+                <Field label="Maximum content width">
                   <Seg
                     value={config.layout.maxW}
                     onChange={(v) => setLayout({ maxW: v })}
@@ -2275,20 +2377,6 @@ function App() {
                     ]}
                   />
                 </Field>
-                {config.template !== "bento" && (
-                  <Slider label="Minimum column width (controls cards per row)" value={config.layout.colMin} min={180} max={360} onChange={(v) => setLayout({ colMin: v })} />
-                )}
-                <Slider label="Gap between cards" value={config.layout.gap} min={12} max={36} onChange={(v) => setLayout({ gap: v })} />
-                <label className="glp-toggle">
-                  <input type="checkbox" checked={config.layout.autoH} onChange={(e) => setLayout({ autoH: e.target.checked })} />
-                  <span className="glp-toggle__text">
-                    <b>Auto card height</b>
-                    <span>Let content decide the height instead of a fixed minimum.</span>
-                  </span>
-                </label>
-                {!config.layout.autoH && (
-                  <Slider label="Card minimum height" value={config.layout.cardMinH} min={140} max={520} step={4} onChange={(v) => setLayout({ cardMinH: v })} />
-                )}
               </details>
 
               <details className="glp-sec" open>
@@ -2327,7 +2415,7 @@ function App() {
                 </Field>
               </details>
             </div>
-            <Preview html={generated} mode={mode} setMode={setMode} device={device} setDevice={setDevice} liquidNote={liquidOn} />
+            <Preview html={generated} mode={mode} setMode={setMode} device={device} setDevice={setDevice} liquidNote={hasLiquid} />
           </>
         ) : (
           <>
@@ -2341,8 +2429,8 @@ function App() {
                 </div>
               )}
               <div className="glp-code__bar">
-                <span className="glp-view__label">Raw HTML{liquidOn && !override ? " + Liquid" : ""}</span>
-                {liquidOn && !override && <span className="glp-chip glp-chip--liquid">liquid</span>}
+                <span className="glp-view__label">Raw HTML{hasLiquid && !override ? " + Liquid" : ""}</span>
+                {hasLiquid && !override && <span className="glp-chip glp-chip--liquid">liquid</span>}
                 <span className={"glp-chip" + (override !== null ? " glp-chip--warn" : "")}>
                   {override !== null ? "manual edits" : "generated from builder"}
                 </span>
@@ -2350,7 +2438,7 @@ function App() {
               </div>
               <textarea spellCheck={false} value={exportHtml} onChange={(e) => setOverride(e.target.value)} />
             </div>
-            <Preview html={exportHtml} mode={mode} setMode={setMode} device={device} setDevice={setDevice} liquidNote={liquidOn && !override} />
+            <Preview html={exportHtml} mode={mode} setMode={setMode} device={device} setDevice={setDevice} liquidNote={hasLiquid && !override} />
           </>
         )}
       </div>
