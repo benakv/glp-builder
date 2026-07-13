@@ -282,7 +282,7 @@ const normSection = (s) => ({
   intro: s.intro || "",
   align: s.align === "left" ? "left" : "center",
   source: s.source === "liquid" ? "liquid" : "static",
-  style: { ...DEFAULT_STYLE, ...(s.style || {}) },
+  style: { ...DEFAULT_STYLE, ...(s.style || {}), num: false, file: false },
   layout: { ...DEFAULT_SECTION_LAYOUT, ...(s.layout || {}) },
   liquid: { ...DEFAULT_LIQUID, ...(s.liquid || {}) },
   cards: (s.cards && s.cards.length ? s.cards : DEFAULT_CONFIG.sections[0].cards).map(normCard),
@@ -1630,9 +1630,9 @@ function CardEditor({ card, index, count, style, open, onToggle, onChange, onMov
           </Field>
 
           {style.icon && <IconField label="Icon" obj={card} onChange={set} />}
-          {(style.badge || style.file) && (
+          {style.badge && (
             <div className="glp-row2">
-              <Field label={style.file ? "Label after File_0N (optional)" : "Badge text"}>
+              <Field label="Badge text">
                 <input className="glp-input" value={card.eyebrow} onChange={(e) => set({ eyebrow: e.target.value })} />
               </Field>
               {style.badge && (
@@ -1736,9 +1736,9 @@ function LiquidControls({ section, setLiq, toggleLiqAccent }) {
         itself. Titles come from <code>child.name</code>, links from <code>/child.subpath</code>, and the list can show each project's top
         guide categories.
       </div>
-      {(st.badge || st.file) && (
+      {st.badge && (
         <div className="glp-row2">
-          <Field label={st.file ? "Label after File_0N" : "Badge text (all cards)"}>
+          <Field label="Badge text (all cards)">
             <input className="glp-input" value={Q.eyebrow} onChange={(e) => setLiq({ eyebrow: e.target.value })} />
           </Field>
           {st.badge && (
@@ -1857,8 +1857,6 @@ function SectionEditor({ section, index, count, open, onToggle, onMove, onRemove
           <div className="glp-checks">
             <StyleCheck checked={!!st.icon} label="Icon tile" onChange={(v) => setStyle({ icon: v })} />
             <StyleCheck checked={!!st.badge} label="Badge / eyebrow" onChange={(v) => setStyle({ badge: v })} />
-            <StyleCheck checked={!!st.num} label="Number (01)" onChange={(v) => setStyle({ num: v })} />
-            <StyleCheck checked={!!st.file} label="File_0N label" onChange={(v) => setStyle({ file: v })} />
             <StyleCheck checked={!!st.bar} label="Top accent bar" onChange={(v) => setStyle({ bar: v })} />
             <StyleCheck checked={!!st.peek} label="Preview list" onChange={(v) => setStyle({ peek: v })} />
             <StyleCheck checked={!!st.cta} label="CTA button" onChange={(v) => setStyle({ cta: v })} />
@@ -2388,7 +2386,7 @@ function App() {
                   <input type="checkbox" checked={config.banner.enabled} onChange={(e) => setBanner({ enabled: e.target.checked })} />
                   <span className="glp-toggle__text">
                     <b>Show a banner below the cards</b>
-                    <span>Full-width call-to-action, like dLocal's "Need help building your solution?"</span>
+                    <span>Full-width call-to-action, e.g. "Need help building your integration?"</span>
                   </span>
                 </label>
                 {config.banner.enabled && (
