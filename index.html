@@ -43,8 +43,19 @@ const ACCENTS = {
   slate: { label: "Slate", light: "#47566B", dark: "#A3B2C7" },
 };
 
-/* ---------------- font pairing presets ---------------- */
+/* ---------------- font pairing presets ----------------
+   `readme` inherits the hub's own typeface via ReadMe's --font-family
+   variable (set by ReadMe's defaults or the customer's Custom CSS /
+   Appearance settings); importUrl is null so no Google font is loaded. */
 const FONTS = {
+  readme: {
+    label: "Match ReadMe",
+    hint: "Inherit the hub's own font (default or your Custom CSS)",
+    display: "var(--font-family, inherit)",
+    body: "var(--font-family, inherit)",
+    mono: "ui-monospace, SFMono-Regular, Menlo, monospace",
+    importUrl: null,
+  },
   grotesk: {
     label: "Space Grotesk + Inter",
     hint: "Geometric, technical — the original look",
@@ -187,7 +198,7 @@ const DEFAULT_CONFIG = {
   ticker: { enabled: false, text: "Documentation • Endpoints • SDKs • Guides" },
   searchMode: "hero",
   flattenHeader: true,
-  headerImage: { enabled: false, url: "", height: 220, tint: 0 },
+  headerImage: { enabled: false, url: "", height: 380, tint: 0 },
   layout: { maxW: 1120 },
   banner: {
     enabled: false,
@@ -496,20 +507,22 @@ function generateHTML(cfg) {
 `
     : "";
 
-  const headerImageCSS = cfg.headerImage.enabled
+  const heroImageCSS = cfg.headerImage.enabled
     ? `
-  /* ===== Header background image (between header top row and subnav) ===== */
-  .bnk-headerbg {
-    position: relative;
-    width: 100%;
+  /* ===== Background image behind the hero (peeks behind a flattened, transparent header) ===== */
+  .bnk-herobg {
+    position: absolute;
+    top: -64px;
+    left: 50%;
+    width: 100vw;
+    transform: translateX(-50%);
     height: ${cfg.headerImage.height}px;
     background: ${cfg.headerImage.url ? `url("${cfg.headerImage.url}")` : "linear-gradient(120deg, #2A3346, #10131A)"} center / cover no-repeat;
+    z-index: 0;
+    pointer-events: none;
   }
-${
-  cfg.headerImage.tint > 0
-    ? `  .bnk-headerbg::after { content: ""; position: absolute; inset: 0; background: rgba(0,0,0,${(cfg.headerImage.tint / 100).toFixed(2)}); }\n`
-    : ""
-}`
+${cfg.headerImage.tint > 0 ? `  .bnk-herobg::after { content: ""; position: absolute; inset: 0; background: rgba(0,0,0,${(cfg.headerImage.tint / 100).toFixed(2)}); }\n` : ""}  .bnk-landing > *:not(.bnk-herobg) { position: relative; z-index: 1; }
+`
     : "";
 
   const headerCenterCSS =
@@ -850,17 +863,15 @@ ${sectionCards(sec, palettes[i])}
   </div>\n`
     : "";
 
-  /* ---------- injected script: relocate search / Ask AI + header image ---------- */
-  const needsScript = cfg.searchMode !== "native" || cfg.headerImage.enabled;
+  /* ---------- injected script: relocate search / Ask AI ---------- */
+  const needsScript = cfg.searchMode !== "native";
   const script = needsScript
     ? `
 <script>
   /* Theming is handled entirely in CSS above. This script only relocates
-     ReadMe's native search + Ask AI controls and (optionally) inserts a
-     header background image between the header top row and the subnav. */
+     ReadMe's native search + Ask AI controls out of the header. */
   (function () {
     var MODE = ${JSON.stringify(cfg.searchMode)};
-    var HAS_IMG = ${cfg.headerImage.enabled ? "true" : "false"};
     function place() {
       var search = document.querySelector(".rm-Header-search");
       var askai = document.querySelector(".rm-AskAi");
@@ -877,15 +888,6 @@ ${sectionCards(sec, palettes[i])}
           if (!box) { box = document.createElement("div"); box.className = "bnk-header-center"; top.appendChild(box); }
           if (search && search.parentElement !== box) box.appendChild(search);
           if (askai && askai.parentElement !== box) box.appendChild(askai);
-        }
-      }
-      if (HAS_IMG) {
-        var header = document.querySelector(".rm-Header");
-        if (header && !header.querySelector(".bnk-headerbg")) {
-          var bg = document.createElement("div");
-          bg.className = "bnk-headerbg";
-          var bottom = header.querySelector(".rm-Header-bottom");
-          if (bottom) header.insertBefore(bg, bottom); else header.appendChild(bg);
         }
       }
     }
@@ -916,9 +918,8 @@ ${
     - Explicit dark   : [data-color-mode="dark"] .bnk-landing
     - Same-as-system  : @media (prefers-color-scheme: dark) + [data-color-mode="system"]
 -->
-<style>
-  @import url('${F.importUrl}');
-${headerCSS}${headerImageCSS}${headerCenterCSS}
+<style>${F.importUrl ? `\n  @import url('${F.importUrl}');` : ""}
+${headerCSS}${heroImageCSS}${headerCenterCSS}
   /* ===== GLOBAL THEME MAP — LIGHT / DEFAULT ===== */
   .bnk-landing {
     --bnk-ink-1: #52525B;
@@ -942,6 +943,7 @@ ${lightAccents}
     --card-blur: none;
 
     box-sizing: border-box;
+    position: relative;
     max-width: ${L.maxW}px;
     margin: 0 auto;
     padding: 20px 48px 36px;
@@ -1032,7 +1034,7 @@ ${bannerCSS}
 </style>
 
 <div class="bnk-landing" id="rm-root">
-${tickerMarkup}  <div class="bnk-hero">
+${cfg.headerImage.enabled ? '  <div class="bnk-herobg" aria-hidden="true"></div>\n' : ""}${tickerMarkup}  <div class="bnk-hero">
 ${heroEyebrow}${heroChip}    <h1 class="bnk-hero__title">${esc(cfg.hero.title)}</h1>
     <p class="bnk-hero__sub">${esc(cfg.hero.subtitle)}</p>
 ${heroButtons}  </div>
@@ -2326,8 +2328,8 @@ function App() {
                 <label className="glp-toggle">
                   <input type="checkbox" checked={config.headerImage.enabled} onChange={(e) => setHeaderImage({ enabled: e.target.checked })} />
                   <span className="glp-toggle__text">
-                    <b>Header background image</b>
-                    <span>Full-width banner between the header top row and the subnav.</span>
+                    <b>Hero background image</b>
+                    <span>Full-bleed image behind the hero — pair with the transparent header so it sits behind that too.</span>
                   </span>
                 </label>
                 {config.headerImage.enabled && (
@@ -2335,7 +2337,7 @@ function App() {
                     <Field label="Image URL">
                       <input className="glp-input" value={config.headerImage.url} onChange={(e) => setHeaderImage({ url: e.target.value })} placeholder="https://…/banner.jpg" />
                     </Field>
-                    <Slider label="Banner height" value={config.headerImage.height} min={80} max={480} step={4} onChange={(v) => setHeaderImage({ height: v })} />
+                    <Slider label="Image height" value={config.headerImage.height} min={160} max={720} step={4} onChange={(v) => setHeaderImage({ height: v })} />
                     <Slider label="Darken (tint)" value={config.headerImage.tint} min={0} max={80} unit="%" onChange={(v) => setHeaderImage({ tint: v })} />
                   </>
                 )}

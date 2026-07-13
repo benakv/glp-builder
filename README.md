@@ -24,15 +24,18 @@ preview — then copy the generated snippet into
 - **Search placement** — three modes: leave it native, center search + Ask AI
   in the header, or move them into a row under the hero. Ask AI always sits
   beside search.
-- **Header background image** — an optional full-width banner (with darkening
-  tint) between the header top row and the subnavigation.
+- **Hero background image** — an optional full-bleed image (with darkening
+  tint) behind the hero; pair it with the transparent header so it sits
+  behind that too.
 - **Shareable links** — the Share button encodes your whole design into the
   URL (`#c=…`); anyone opening the link sees your exact configuration. Links
   saved with older versions are migrated automatically.
 - Native ReadMe **dark/light/system theming** via `data-color-mode` — no JS
   theme hacks
-- 4 font pairings, per-card accent colors, hero buttons/chip, announcement
-  ticker, contact banner, page-width control
+- 4 font pairings **plus a "Match ReadMe" option** that inherits the hub's
+  own typeface (ReadMe's `--font-family`, i.e. its default or your Custom CSS)
+- Per-card accent colors, hero buttons/chip, announcement ticker, contact
+  banner, page-width control
 - Copy or download the finished HTML
 
 ## Deploying (GitHub → Netlify)
