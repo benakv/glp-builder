@@ -1462,14 +1462,18 @@ const APP_CSS = `
       radial-gradient(circle at 1px 1px, rgba(255,255,255,.055) 1px, transparent 0) 0 0 / 22px 22px,
       var(--bg);
   }
+  .glp-framestack { position: relative; flex: 1 1 auto; height: 100%; min-width: 0; }
   .glp-frame {
+    position: absolute; top: 0; bottom: 0; left: 0; right: 0; margin: 0 auto;
     border: 1px solid var(--line-2);
     border-radius: 12px;
     background: #fff;
     width: 100%; height: 100%;
     box-shadow: 0 20px 60px rgba(0,0,0,.45);
+    opacity: 0;
     transition: max-width 250ms ease;
   }
+  .glp-frame.on { opacity: 1; z-index: 1; }
   .glp-frame.mobile { max-width: 396px; }
 
   .glp-code {
@@ -2038,9 +2042,19 @@ function SectionEditor({ section, index, count, open, onToggle, onMove, onRemove
 
 /* ---------- preview pane ---------- */
 function Preview({ html, mode, setMode, device, setDevice, liquidNote }) {
-  const [doc, setDoc] = useState(() => buildPreviewDoc(expandLiquidForPreview(html), mode));
+  /* Double-buffered preview: render the new doc into the hidden iframe and
+     only reveal it once it has finished loading, so the visible frame never
+     blanks (which read as a flash on every edit). */
+  const [slots, setSlots] = useState(() => [buildPreviewDoc(expandLiquidForPreview(html), mode), ""]);
+  const [active, setActive] = useState(0);
+  const activeRef = useRef(0);
+  activeRef.current = active;
   useEffect(() => {
-    const t = setTimeout(() => setDoc(buildPreviewDoc(expandLiquidForPreview(html), mode)), 250);
+    const t = setTimeout(() => {
+      const doc = buildPreviewDoc(expandLiquidForPreview(html), mode);
+      const back = activeRef.current === 0 ? 1 : 0;
+      setSlots((s) => (s[back] === doc ? s : back === 0 ? [doc, s[1]] : [s[0], doc]));
+    }, 250);
     return () => clearTimeout(t);
   }, [html, mode]);
   return (
@@ -2068,12 +2082,18 @@ function Preview({ html, mode, setMode, device, setDevice, liquidNote }) {
         </span>
       </div>
       <div className="glp-view__framewrap">
-        <iframe
-          className={"glp-frame" + (device === "mobile" ? " mobile" : "")}
-          title="Landing page preview"
-          sandbox="allow-scripts allow-same-origin"
-          srcDoc={doc}
-        />
+        <div className="glp-framestack">
+          {[0, 1].map((i) => (
+            <iframe
+              key={i}
+              className={"glp-frame" + (device === "mobile" ? " mobile" : "") + (i === active ? " on" : "")}
+              title="Landing page preview"
+              sandbox="allow-scripts allow-same-origin"
+              srcDoc={slots[i]}
+              onLoad={() => { if (i !== activeRef.current && slots[i]) setActive(i); }}
+            />
+          ))}
+        </div>
       </div>
     </div>
   );
