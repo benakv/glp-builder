@@ -935,10 +935,13 @@ ${cfg.headerImage.tint > 0 ? `  .bnk-herobg::after { content: ""; position: abso
     font-size: 24px; line-height: 1; border-radius: 12px; color: var(--accent);
     background: color-mix(in srgb, var(--accent) 11%, transparent); margin-bottom: 16px;
   }
-  /* bare icon — drop the tinted tile, show the glyph on its own */
+  /* bare icon — drop the tinted tile, show the glyph on its own.
+     display:block (not the tile's flex) so it hugs its content and stays
+     left-aligned with the title instead of stretching + centering. */
   .bnk-sec--iconbare .bnk-card__icon {
-    width: auto; height: auto; background: transparent; border-radius: 0;
-    font-size: 30px; margin-bottom: 12px;
+    display: block; width: auto; height: auto;
+    background: transparent; border-radius: 0;
+    font-size: 30px; line-height: 1; margin-bottom: 14px;
   }
   .bnk-card__title {
     margin: 0 0 8px; font-family: var(--title-font, ${F.display}); font-weight: 600;
