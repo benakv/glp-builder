@@ -2403,28 +2403,46 @@ function Preview({ html, mode, setMode, device, setDevice, liquidNote }) {
      loads a brand-new iframe, always starting at the top) can restore it —
      otherwise every edit snaps the preview back to the top. */
   const scrollRef = useRef({ x: 0, y: 0 });
+  /* mirror of `slots` for the timeout below so it never reads stale state
+     (the effect only re-runs on html/mode, but slots also changes on swap) */
+  const slotsRef = useRef(slots);
+  slotsRef.current = slots;
   const captureScroll = () => {
     const f = frames.current[activeRef.current];
     try {
       if (f && f.contentWindow) scrollRef.current = { x: f.contentWindow.scrollX, y: f.contentWindow.scrollY };
     } catch (e) {}
   };
-  useEffect(() => {
-    const t = setTimeout(() => {
-      const doc = buildPreviewDoc(expandLiquidForPreview(html), mode);
-      const back = activeRef.current === 0 ? 1 : 0;
-      captureScroll();
-      setSlots((s) => (s[back] === doc ? s : back === 0 ? [doc, s[1]] : [s[0], doc]));
-    }, 250);
-    return () => clearTimeout(t);
-  }, [html, mode]);
-  const onFrameLoad = (i) => {
-    if (i === activeRef.current || !slots[i]) return; // only react to the freshly-loaded back buffer
-    /* restore the captured scroll onto the incoming frame before revealing it */
+  const restoreScroll = (i) => {
     try {
       const f = frames.current[i];
       if (f && f.contentWindow) f.contentWindow.scrollTo(scrollRef.current.x, scrollRef.current.y);
     } catch (e) {}
+  };
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const doc = buildPreviewDoc(expandLiquidForPreview(html), mode);
+      const cur = activeRef.current;
+      const back = cur === 0 ? 1 : 0;
+      const s = slotsRef.current;
+      if (s[cur] === doc) return; // already the visible doc — nothing to do
+      captureScroll();
+      if (s[back] === doc) {
+        /* the hidden buffer already holds this exact doc (e.g. you toggled a
+           switch back off, or dragged a slider back to a prior value) — writing
+           it again is a no-op that fires no load event, so the visible frame
+           would stay stale. Reveal the buffer we already have instead. */
+        restoreScroll(back);
+        setActive(back);
+        return;
+      }
+      setSlots(back === 0 ? [doc, s[1]] : [s[0], doc]);
+    }, 250);
+    return () => clearTimeout(t);
+  }, [html, mode]);
+  const onFrameLoad = (i) => {
+    if (i === activeRef.current || !slotsRef.current[i]) return; // only react to the freshly-loaded back buffer
+    restoreScroll(i); // restore the captured scroll onto the incoming frame before revealing it
     setActive(i);
   };
   return (
