@@ -236,6 +236,8 @@ const DEFAULT_CONFIG = {
     /* null = use the alignment-based default size (38/42 title, 14.5 subtitle) */
     titleSize: null,
     subtitleSize: null,
+    fullBleed: false,
+    padY: 0,
     buttons: false,
     btnPrimary: { label: "Get started", href: "/bv-1" },
     btnSecondary: { label: "API Reference", href: "/bv-1/reference" },
@@ -609,6 +611,9 @@ function generateHTML(cfg) {
   const heroLeft = cfg.hero.align === "left";
   const heroTitleSize = cfg.hero.titleSize != null ? cfg.hero.titleSize : heroLeft ? 42 : 38;
   const heroSubSize = cfg.hero.subtitleSize != null ? cfg.hero.subtitleSize : 14.5;
+  const heroFull = !!cfg.hero.fullBleed;
+  const heroPadY = cfg.hero.padY || 0;
+  const heroMaxW = heroLeft ? "720px" : "640px";
   const hasLiquid = sections.some((s) => s.type !== "columns" && s.source === "liquid");
 
   /* effective card style for a section: its own ("custom") or the global one */
@@ -1233,8 +1238,18 @@ ${tickerCSS}
   /* ===== Hero ===== */
   .bnk-hero {
     text-align: ${heroLeft ? "left" : "center"};
-    margin: 34px ${heroLeft ? "0" : "auto"} 0;
-    max-width: ${heroLeft ? "720px" : "640px"};
+${heroFull
+  ? `    width: 100vw;
+    margin-left: calc(50% - 50vw);
+    margin-right: calc(50% - 50vw);
+    padding: ${heroPadY}px 48px;`
+  : `    margin: 34px ${heroLeft ? "0" : "auto"} 0;
+    max-width: ${heroMaxW};
+    padding: ${heroPadY}px 0;`}
+  }
+  /* inner keeps the copy at a readable width when the band goes edge-to-edge */
+  .bnk-hero__inner {
+${heroFull ? `    max-width: ${heroMaxW};\n    margin: ${heroLeft ? "0" : "0 auto"};` : "    max-width: none;"}
   }
   .bnk-hero__eyebrow {
     margin: 0 0 14px;
@@ -1273,9 +1288,11 @@ ${bannerCSS}
 
 <div class="bnk-landing" id="rm-root">
 ${cfg.headerImage.enabled ? '  <div class="bnk-herobg" aria-hidden="true"></div>\n' : ""}${tickerMarkup}  <div class="bnk-hero">
-${heroEyebrow}${heroChip}    <h1 class="bnk-hero__title">${esc(cfg.hero.title)}</h1>
-    <p class="bnk-hero__sub">${esc(cfg.hero.subtitle)}</p>
-${heroButtons}  </div>
+    <div class="bnk-hero__inner">
+${heroEyebrow}${heroChip}      <h1 class="bnk-hero__title">${esc(cfg.hero.title)}</h1>
+      <p class="bnk-hero__sub">${esc(cfg.hero.subtitle)}</p>
+${heroButtons}    </div>
+  </div>
 ${cfg.searchMode === "hero" ? '\n  <div class="bnk-actions" id="rm-actions"></div>\n' : ""}
 ${sectionsMarkup}
 ${bannerMarkup}${cfg.footer.trim() ? `\n  <p class="bnk-footer">${esc(cfg.footer)}</p>` : ""}
@@ -3312,6 +3329,14 @@ function App() {
                     ]}
                   />
                 </Field>
+                <label className="glp-toggle" style={{ paddingTop: 0 }}>
+                  <input type="checkbox" checked={!!config.hero.fullBleed} onChange={(e) => setHero({ fullBleed: e.target.checked })} />
+                  <span className="glp-toggle__text">
+                    <b>Full-width hero</b>
+                    <span>Stretch the hero edge-to-edge across the whole page; the text stays centered at a readable width. Pairs well with a hero background image.</span>
+                  </span>
+                </label>
+                <Slider label="Vertical padding (space above &amp; below the hero text)" value={config.hero.padY || 0} min={0} max={160} step={4} onChange={(v) => setHero({ padY: v })} />
                 <label className="glp-toggle">
                   <input type="checkbox" checked={config.hero.buttons} onChange={(e) => setHero({ buttons: e.target.checked })} />
                   <span className="glp-toggle__text">
