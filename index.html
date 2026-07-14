@@ -14,6 +14,7 @@
 <script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
 <script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone@7.26.4/babel.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
 </head>
 <body>
 <div id="root"><div class="boot">LOADING GLP BUILDER…</div></div>
@@ -115,6 +116,7 @@ const FONTS = {
 const DEFAULT_STYLE = {
   anchor: false,
   icon: false,
+  iconBg: true, // tinted tile behind the icon/emoji (off = bare glyph)
   badge: false,
   num: false,
   file: false,
@@ -126,6 +128,19 @@ const DEFAULT_STYLE = {
   radius: 16,
   density: "roomy",
 };
+
+/* one-click starter looks — each sets the GLOBAL card style (cfg.cardStyle).
+   Content (cards/columns) is left untouched; only the look changes. */
+const PRESETS = [
+  { key: "audience", label: "Audience hub", hint: "Badges, icons, preview lists + CTA",
+    style: { anchor: false, icon: true, iconBg: true, badge: true, bar: true, peek: true, cta: true, ctaPlain: false, mono: false, radius: 16, density: "comfortable" } },
+  { key: "help", label: "Help center", hint: "Compact, whole-card links",
+    style: { anchor: true, icon: false, iconBg: true, badge: false, bar: false, peek: false, cta: false, ctaPlain: false, mono: false, radius: 12, density: "compact" } },
+  { key: "bold", label: "Bold icons", hint: "Big bare icons, roomy, plain CTA",
+    style: { anchor: false, icon: true, iconBg: false, badge: false, bar: true, peek: false, cta: true, ctaPlain: true, mono: false, radius: 20, density: "roomy" } },
+  { key: "minimal", label: "Minimal", hint: "Just titles + text",
+    style: { anchor: true, icon: false, iconBg: true, badge: false, bar: false, peek: false, cta: false, ctaPlain: false, mono: false, radius: 12, density: "comfortable" } },
+];
 
 /* old template → granular style, used only when migrating saved configs */
 const TEMPLATE_TO_STYLE = {
@@ -147,6 +162,15 @@ let _uid = 10;
    designs, producing duplicate React keys (cross-section edits/deletes and
    scroll jumps). The random suffix makes every id globally unique. */
 const uid = () => "c" + (_uid++).toString(36) + Math.random().toString(36).slice(2, 8);
+
+/* quick-pick sets for the icon picker */
+const EMOJI_COMMON = ["📘","📖","🚀","🔑","🔒","⚙️","🧩","🧪","📦","🌐","💳","📊","🤝","⭐","💡","🛠️","📚","🧭","🔔","✅"];
+const FA_COMMON = [
+  "book","book-open","rocket","code","terminal","key","lock","cloud","gear","plug",
+  "bolt","flask","cube","cubes","layer-group","compass","map","flag","star","heart",
+  "circle-question","life-ring","graduation-cap","puzzle-piece","screwdriver-wrench","shield-halved",
+  "database","server","globe","envelope","credit-card","chart-line","users","user","gift","wand-magic-sparkles",
+];
 
 const CARD_DEFAULTS = {
   icon: "📘",
@@ -183,7 +207,7 @@ const DEFAULT_LIQUID = {
   accents: ["green", "purple", "amber"],
 };
 
-const DEFAULT_SECTION_LAYOUT = { colMin: 258, gap: 20, autoH: true, cardMinH: 396, bento: false, spaceAbove: 36, divider: false };
+const DEFAULT_SECTION_LAYOUT = { colMin: 258, gap: 20, autoH: true, cardMinH: 396, bento: false, spaceAbove: 36, divider: false, bg: "none" };
 
 /* ---------------- text-columns section ----------------
    A section can be a grid of 1–4 evenly-distributed text columns, each with
@@ -911,6 +935,11 @@ ${cfg.headerImage.tint > 0 ? `  .bnk-herobg::after { content: ""; position: abso
     font-size: 24px; line-height: 1; border-radius: 12px; color: var(--accent);
     background: color-mix(in srgb, var(--accent) 11%, transparent); margin-bottom: 16px;
   }
+  /* bare icon — drop the tinted tile, show the glyph on its own */
+  .bnk-sec--iconbare .bnk-card__icon {
+    width: auto; height: auto; background: transparent; border-radius: 0;
+    font-size: 30px; margin-bottom: 12px;
+  }
   .bnk-card__title {
     margin: 0 0 8px; font-family: var(--title-font, ${F.display}); font-weight: 600;
     font-size: var(--title-size, 21px); line-height: 1.15; letter-spacing: -0.01em;
@@ -970,6 +999,11 @@ ${cfg.headerImage.tint > 0 ? `  .bnk-herobg::after { content: ""; position: abso
     top: calc(-1 * var(--divider-offset, 18px));
     height: 1px; background: var(--card-divider);
   }
+  /* optional tinted section background (a contained rounded panel) */
+  .bnk-sec--bg-subtle, .bnk-sec--bg-accent { padding: 30px 32px; border-radius: 16px; }
+  .bnk-sec--bg-subtle { background: color-mix(in srgb, var(--bnk-heading) 4%, transparent); }
+  .bnk-sec--bg-accent { background: color-mix(in srgb, var(--bnk-accent) 7%, transparent); }
+  .bnk-sec--bg-subtle .bnk-section, .bnk-sec--bg-accent .bnk-section { margin-top: 0; }
   .bnk-section { margin: 0 0 20px; }
   .bnk-section__title {
     margin: 0 0 8px;
@@ -1013,8 +1047,10 @@ ${cfg.headerImage.tint > 0 ? `  .bnk-herobg::after { content: ""; position: abso
       const cls =
         `bnk-sec bnk-sec-${i} bnk-sec--${sec.align === "left" ? "left" : "center"}` +
         (sec.layout.divider ? " bnk-sec--divider" : "") +
+        (sec.layout.bg === "subtle" ? " bnk-sec--bg-subtle" : sec.layout.bg === "accent" ? " bnk-sec--bg-accent" : "") +
         (!isCols && st.bar ? " bnk-sec--bar" : "") +
         (!isCols && st.mono ? " bnk-sec--mono" : "") +
+        (!isCols && st.icon && !st.iconBg ? " bnk-sec--iconbare" : "") +
         (!isCols && sec.layout.bento ? " bnk-sec--bento" : "");
       const titleFont = !isCols && st.mono ? F.mono : F.display;
       const titleTt = !isCols && st.mono ? "uppercase" : "none";
@@ -1370,6 +1406,14 @@ function buildPreviewDoc(userHtml, mode) {
     border-radius: 8px; padding: 7px 14px;
     font-size: 13.5px; font-family: inherit; cursor: pointer;
   }
+  /* builder-only: scroll-target + flash when a section is selected in the editor */
+  .bnk-sec { scroll-margin-top: 20px; }
+  .bnk-sec.bnk-flash { animation: bnkFlash 1.3s ease; border-radius: 10px; }
+  @keyframes bnkFlash {
+    0% { box-shadow: 0 0 0 3px rgba(76,141,255,0); }
+    18% { box-shadow: 0 0 0 3px rgba(76,141,255,.55); }
+    100% { box-shadow: 0 0 0 3px rgba(76,141,255,0); }
+  }
 </style>
 </head>
 <body>
@@ -1528,6 +1572,31 @@ const APP_CSS = `
   .glp-font__aa { font-size: 21px; line-height: 1; color: var(--ink); width: 34px; flex: none; }
   .glp-font__name { font-size: 12.5px; font-weight: 600; display: block; }
   .glp-font__hint { font-size: 10.5px; color: var(--ink-3); display: block; margin-top: 2px; }
+
+  /* starter presets */
+  .glp-presets { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+  .glp-preset {
+    text-align: left; border: 1px solid var(--line-2); background: var(--panel-2); color: var(--ink);
+    border-radius: 10px; padding: 9px 11px; cursor: pointer; font-family: inherit;
+    transition: border-color 120ms ease, background 120ms ease;
+  }
+  .glp-preset:hover { border-color: var(--accent); background: rgba(76,141,255,.08); }
+  .glp-preset b { display: block; font-size: 12.5px; font-weight: 600; }
+  .glp-preset span { display: block; font-size: 10.5px; color: var(--ink-3); margin-top: 2px; line-height: 1.35; }
+
+  /* icon picker */
+  .glp-emojis { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .glp-emoji { font-size: 16px; line-height: 1; padding: 5px 7px; border: 1px solid var(--line-2); background: var(--bg); border-radius: 7px; cursor: pointer; }
+  .glp-emoji:hover { border-color: var(--ink-3); }
+  .glp-emoji.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  .glp-fagrid { display: grid; grid-template-columns: repeat(9, 1fr); gap: 6px; margin-top: 8px; }
+  .glp-faicon { display: flex; align-items: center; justify-content: center; height: 30px; color: var(--ink-2); border: 1px solid var(--line-2); background: var(--bg); border-radius: 7px; cursor: pointer; font-size: 14px; }
+  .glp-faicon:hover { color: var(--ink); border-color: var(--ink-3); }
+  .glp-faicon.on { color: var(--accent); border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+
+  /* autosave indicator */
+  .glp-save { font-size: 11px; font-family: 'Space Mono', monospace; color: var(--ink-3); white-space: nowrap; }
+  .glp-save.ok { color: var(--ok); }
 
   .glp-slider { display: flex; align-items: center; gap: 10px; }
   .glp-slider input[type=range] { flex: 1; accent-color: var(--accent); min-width: 0; }
@@ -1790,6 +1859,36 @@ function normHex(v) {
   return /^[0-9a-fA-F]{6}$/.test(s) ? "#" + s.toLowerCase() : null;
 }
 
+/* WCAG relative-luminance contrast ratio between two #rrggbb colors */
+function relLum(hex) {
+  const h = normHex(hex);
+  if (!h) return null;
+  const ch = [1, 3, 5].map((i) => {
+    let v = parseInt(h.slice(i, i + 2), 16) / 255;
+    return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+  });
+  return 0.2126 * ch[0] + 0.7152 * ch[1] + 0.0722 * ch[2];
+}
+function contrastRatio(a, b) {
+  const la = relLum(a), lb = relLum(b);
+  if (la == null || lb == null) return null;
+  const hi = Math.max(la, lb), lo = Math.min(la, lb);
+  return (hi + 0.05) / (lo + 0.05);
+}
+/* the card surface each accent sits on, per mode (matches the generated theme) */
+const CARD_SURFACE = { light: "#ffffff", dark: "#151a21" };
+/* readout for one accent vs its surface — 3:1 is WCAG AA for large/bold text & UI */
+function ContrastNote({ color, surface, label }) {
+  const r = contrastRatio(color, surface);
+  if (r == null) return null;
+  const ok = r >= 3;
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 4, color: ok ? "var(--ink-3)" : "#E3B168" }}>
+      {label} {r.toFixed(1)}:1 {ok ? "✓" : "⚠"}
+    </span>
+  );
+}
+
 /* hex-first color input: type a hex code (primary), or nudge with the swatch picker */
 function HexColor({ value, onChange }) {
   const [txt, setTxt] = useState(value);
@@ -1845,10 +1944,28 @@ function IconField({ label, obj, onChange }) {
           </>
         )}
       </div>
-      {type === "fa" && (
-        <div style={{ fontSize: 11, color: "var(--ink-3)", marginTop: 5, lineHeight: 1.45 }}>
-          Font Awesome icon name without the <code>fa-</code> prefix. Light &amp; duotone are Pro-only and may not show in the preview.
+      {type === "emoji" && (
+        <div className="glp-emojis">
+          {EMOJI_COMMON.map((e) => (
+            <button key={e} type="button" className={"glp-emoji" + (obj.icon === e ? " on" : "")} onClick={() => onChange({ icon: e })}>
+              {e}
+            </button>
+          ))}
         </div>
+      )}
+      {type === "fa" && (
+        <>
+          <div className="glp-fagrid">
+            {FA_COMMON.map((n) => (
+              <button key={n} type="button" title={n} className={"glp-faicon" + (obj.icon === n ? " on" : "")} onClick={() => onChange({ icon: n })}>
+                <i className={"fa-" + (obj.faStyle || "solid") + " fa-" + n} aria-hidden="true"></i>
+              </button>
+            ))}
+          </div>
+          <div style={{ fontSize: 11, color: "var(--ink-3)", marginTop: 6, lineHeight: 1.45 }}>
+            Or type any Font Awesome name (without the <code>fa-</code> prefix). Light &amp; duotone are Pro-only and may not show in the preview.
+          </div>
+        </>
       )}
     </Field>
   );
@@ -1893,7 +2010,11 @@ function AccentSwatches({ selected, onSelect, multi = false, customCard = null, 
             <span>Dark</span>
             <HexColor value={customCard.customDark} onChange={(v) => onCustom({ customDark: v })} />
           </div>
-          <div style={{ fontSize: 11, color: "var(--ink-3)", lineHeight: 1.4 }}>Use a brighter shade for dark mode.</div>
+          <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: 11, fontFamily: "'Space Mono', monospace" }}>
+            <ContrastNote label="Light" color={customCard.customLight} surface={CARD_SURFACE.light} />
+            <ContrastNote label="Dark" color={customCard.customDark} surface={CARD_SURFACE.dark} />
+          </div>
+          <div style={{ fontSize: 11, color: "var(--ink-3)", lineHeight: 1.4 }}>Contrast vs the card background — aim for 3:1+ so text and buttons stay legible. Use a brighter shade for dark mode.</div>
         </div>
       )}
     </>
@@ -1901,7 +2022,7 @@ function AccentSwatches({ selected, onSelect, multi = false, customCard = null, 
 }
 
 /* ---------- card editor ---------- */
-function CardEditor({ card, index, count, style, hideAccents, open, onToggle, onChange, onMove, onRemove }) {
+function CardEditor({ card, index, count, style, hideAccents, open, onToggle, onChange, onMove, onRemove, onDuplicate }) {
   const acc = cardAccent(card);
   const set = (patch) => onChange({ ...card, ...patch });
   const setPeek = (i, val) => {
@@ -1919,6 +2040,8 @@ function CardEditor({ card, index, count, style, hideAccents, open, onToggle, on
           onClick={(e) => { e.stopPropagation(); onMove(-1); }} type="button">&#8593;</button>
         <button className="glp-iconbtn" title="Move down" disabled={index === count - 1}
           onClick={(e) => { e.stopPropagation(); onMove(1); }} type="button">&#8595;</button>
+        <button className="glp-iconbtn" title="Duplicate card" disabled={count >= 12}
+          onClick={(e) => { e.stopPropagation(); onDuplicate(); }} type="button">&#10697;</button>
         <button className="glp-iconbtn" title="Delete card" disabled={count === 1}
           onClick={(e) => { e.stopPropagation(); onRemove(); }} type="button">&#10005;</button>
         <span className="glp-iconbtn" style={{ transform: open ? "rotate(90deg)" : "none", transition: "transform 150ms" }}>&#8250;</span>
@@ -2128,6 +2251,12 @@ function CardStyleControls({ style: st, setStyle }) {
         <StyleCheck checked={!!st.anchor} label="Whole card links" onChange={(v) => setStyle({ anchor: v })} />
         <StyleCheck checked={!!st.mono} label="Mono / uppercase" onChange={(v) => setStyle({ mono: v })} />
       </div>
+      {st.icon && (
+        <label className="glp-check" style={{ margin: "0 0 12px" }}>
+          <input type="checkbox" checked={st.iconBg !== false} onChange={(e) => setStyle({ iconBg: e.target.checked })} />
+          Background tile behind icon
+        </label>
+      )}
       <Field label="Call to action">
         <Seg
           value={st.cta ? (st.ctaPlain ? "plain" : "button") : "none"}
@@ -2156,7 +2285,7 @@ function CardStyleControls({ style: st, setStyle }) {
 }
 
 /* ---------- single text-column editor ---------- */
-function ColumnEditor({ column, index, count, open, onToggle, onChange, onMove, onRemove }) {
+function ColumnEditor({ column, index, count, open, onToggle, onChange, onMove, onRemove, onDuplicate }) {
   const set = (patch) => onChange({ ...column, ...patch });
   const setCta = (patch) => onChange({ ...column, cta: { ...column.cta, ...patch } });
   return (
@@ -2167,6 +2296,8 @@ function ColumnEditor({ column, index, count, open, onToggle, onChange, onMove, 
           onClick={(e) => { e.stopPropagation(); onMove(-1); }} type="button">&#8593;</button>
         <button className="glp-iconbtn" title="Move down" disabled={index === count - 1}
           onClick={(e) => { e.stopPropagation(); onMove(1); }} type="button">&#8595;</button>
+        <button className="glp-iconbtn" title="Duplicate column" disabled={count >= 4}
+          onClick={(e) => { e.stopPropagation(); onDuplicate(); }} type="button">&#10697;</button>
         <button className="glp-iconbtn" title="Delete column" disabled={count === 1}
           onClick={(e) => { e.stopPropagation(); onRemove(); }} type="button">&#10005;</button>
         <span className="glp-iconbtn" style={{ transform: open ? "rotate(90deg)" : "none", transition: "transform 150ms" }}>&#8250;</span>
@@ -2215,7 +2346,7 @@ function ColumnEditor({ column, index, count, open, onToggle, onChange, onMove, 
 }
 
 /* ---------- section editor ---------- */
-function SectionEditor({ section, index, count, hideAccents, globalStyle, open, onToggle, onMove, onRemove, onChange, cardOps, openCard, setOpenCard }) {
+function SectionEditor({ section, index, count, hideAccents, globalStyle, open, onToggle, onMove, onRemove, onDuplicate, onChange, cardOps, openCard, setOpenCard }) {
   const set = (patch) => onChange({ ...section, ...patch });
   const setStyle = (patch) => onChange({ ...section, style: { ...section.style, ...patch } });
   const setLay = (patch) => onChange({ ...section, layout: { ...section.layout, ...patch } });
@@ -2249,6 +2380,16 @@ function SectionEditor({ section, index, count, hideAccents, globalStyle, open, 
       setOpenCard(col.id);
       set({ columns: [...section.columns, col] });
     },
+    duplicate: (id) => {
+      if (section.columns.length >= 4) return;
+      const i = section.columns.findIndex((c) => c.id === id);
+      if (i < 0) return;
+      const copy = { ...section.columns[i], id: uid(), cta: { ...section.columns[i].cta } };
+      const arr = [...section.columns];
+      arr.splice(i + 1, 0, copy);
+      setOpenCard(copy.id);
+      set({ columns: arr });
+    },
   };
 
   return (
@@ -2260,6 +2401,8 @@ function SectionEditor({ section, index, count, hideAccents, globalStyle, open, 
           onClick={(e) => { e.stopPropagation(); onMove(-1); }} type="button">&#8593;</button>
         <button className="glp-iconbtn" title="Move down" disabled={index === count - 1}
           onClick={(e) => { e.stopPropagation(); onMove(1); }} type="button">&#8595;</button>
+        <button className="glp-iconbtn" title="Duplicate section" disabled={count >= 6}
+          onClick={(e) => { e.stopPropagation(); onDuplicate(); }} type="button">&#10697;</button>
         <button className="glp-iconbtn" title="Delete section" disabled={count === 1}
           onClick={(e) => { e.stopPropagation(); onRemove(); }} type="button">&#10005;</button>
         <span className="glp-iconbtn" style={{ transform: open ? "rotate(90deg)" : "none", transition: "transform 150ms" }}>&#8250;</span>
@@ -2293,7 +2436,7 @@ function SectionEditor({ section, index, count, hideAccents, globalStyle, open, 
             />
           </Field>
 
-          <div className="glp-sub">Spacing</div>
+          <div className="glp-sub">Spacing &amp; background</div>
           <Slider label="Space above section" value={section.layout.spaceAbove == null ? 36 : section.layout.spaceAbove} min={0} max={160} step={2} onChange={(v) => setLay({ spaceAbove: v })} />
           <label className="glp-toggle" style={{ paddingTop: 0 }}>
             <input type="checkbox" checked={!!section.layout.divider} onChange={(e) => setLay({ divider: e.target.checked })} />
@@ -2302,6 +2445,17 @@ function SectionEditor({ section, index, count, hideAccents, globalStyle, open, 
               <span>A hairline centered in the space above this section.</span>
             </span>
           </label>
+          <Field label="Section background">
+            <Seg
+              value={section.layout.bg || "none"}
+              onChange={(v) => setLay({ bg: v })}
+              options={[
+                { value: "none", label: "None" },
+                { value: "subtle", label: "Subtle" },
+                { value: "accent", label: "Accent" },
+              ]}
+            />
+          </Field>
 
           {isCols ? (
             <>
@@ -2318,6 +2472,7 @@ function SectionEditor({ section, index, count, hideAccents, globalStyle, open, 
                   onChange={(next) => colOps.set(col.id, next)}
                   onMove={(dir) => colOps.move(col.id, dir)}
                   onRemove={() => colOps.remove(col.id)}
+                  onDuplicate={() => colOps.duplicate(col.id)}
                 />
               ))}
               <button className="glp-add" type="button" onClick={colOps.add} disabled={section.columns.length >= 4}>
@@ -2397,6 +2552,7 @@ function SectionEditor({ section, index, count, hideAccents, globalStyle, open, 
                       onChange={(next) => cardOps.set(card.id, next)}
                       onMove={(dir) => cardOps.move(card.id, dir)}
                       onRemove={() => cardOps.remove(card.id)}
+                      onDuplicate={() => cardOps.duplicate(card.id)}
                     />
                   ))}
                   <button className="glp-add" type="button" onClick={cardOps.add} disabled={section.cards.length >= 12}>
@@ -2413,7 +2569,7 @@ function SectionEditor({ section, index, count, hideAccents, globalStyle, open, 
 }
 
 /* ---------- preview pane ---------- */
-function Preview({ html, mode, setMode, device, setDevice, liquidNote }) {
+function Preview({ html, mode, setMode, device, setDevice, liquidNote, focusIndex }) {
   /* Double-buffered preview: render the new doc into the hidden iframe and
      only reveal it once it has finished loading, so the visible frame never
      blanks (which read as a flash on every edit). */
@@ -2468,6 +2624,23 @@ function Preview({ html, mode, setMode, device, setDevice, liquidNote }) {
     restoreScroll(i); // restore the captured scroll onto the incoming frame before revealing it
     setActive(i);
   };
+  /* when a section is selected in the builder, scroll the preview to it and flash it */
+  useEffect(() => {
+    if (focusIndex == null) return;
+    const t = setTimeout(() => {
+      const f = frames.current[activeRef.current];
+      try {
+        const el = f && f.contentDocument && f.contentDocument.querySelector(".bnk-sec-" + focusIndex);
+        if (!el) return;
+        el.scrollIntoView({ behavior: "smooth", block: "start" });
+        el.classList.remove("bnk-flash");
+        void el.offsetWidth; // restart the animation if it was mid-flight
+        el.classList.add("bnk-flash");
+        setTimeout(() => { try { el.classList.remove("bnk-flash"); } catch (e) {} }, 1500);
+      } catch (e) {}
+    }, 90);
+    return () => clearTimeout(t);
+  }, [focusIndex]);
   return (
     <div className="glp-view">
       <div className="glp-view__bar">
@@ -2545,6 +2718,8 @@ function App() {
   const [device, setDevice] = useState("desktop");
   const [copied, setCopied] = useState(false);
   const [shared, setShared] = useState(false);
+  const [saveState, setSaveState] = useState("saved");
+  const firstAutosave = useRef(true);
   const [histVer, setHistVer] = useState(0);
   const past = useRef([]);
   const future = useRef([]);
@@ -2562,6 +2737,7 @@ function App() {
   const setHeaderImage = (p) => setConfig((c) => ({ ...c, headerImage: { ...c.headerImage, ...p } }));
   const setTheme = (p) => setConfig((c) => ({ ...c, theme: { ...c.theme, ...p } }));
   const setCardStyle = (p) => setConfig((c) => ({ ...c, cardStyle: { ...(c.cardStyle || DEFAULT_STYLE), ...p } }));
+  const applyPreset = (preset) => setConfig((c) => ({ ...c, cardStyle: { ...DEFAULT_STYLE, ...preset.style } }));
 
   /* ---- undo / redo history (rollback) ---- */
   useEffect(() => {
@@ -2647,6 +2823,26 @@ function App() {
       setOpenSection(id);
       return { ...c, sections: [...c.sections, ns] };
     });
+  const duplicateSection = (id) =>
+    setConfig((c) => {
+      if (c.sections.length >= 6) return c;
+      const i = c.sections.findIndex((s) => s.id === id);
+      if (i < 0) return c;
+      const src = c.sections[i];
+      const copy = {
+        ...src,
+        id: uid(),
+        style: { ...src.style },
+        layout: { ...src.layout },
+        liquid: { ...src.liquid, accents: [...src.liquid.accents] },
+        columns: src.columns.map((col) => ({ ...col, id: uid(), cta: { ...col.cta } })),
+        cards: src.cards.map((k) => ({ ...k, id: uid(), peekItems: [...k.peekItems] })),
+      };
+      const arr = [...c.sections];
+      arr.splice(i + 1, 0, copy);
+      setOpenSection(copy.id);
+      return { ...c, sections: arr };
+    });
 
   /* ---- card ops scoped to a section ---- */
   const cardOpsFor = (secId) => ({
@@ -2684,6 +2880,20 @@ function App() {
           return { ...s, cards: [...s.cards, { ...CARD_DEFAULTS, id }] };
         }),
       })),
+    duplicate: (cardId) =>
+      setConfig((c) => ({
+        ...c,
+        sections: c.sections.map((s) => {
+          if (s.id !== secId || s.cards.length >= 12) return s;
+          const i = s.cards.findIndex((k) => k.id === cardId);
+          if (i < 0) return s;
+          const copy = { ...s.cards[i], id: uid(), peekItems: [...s.cards[i].peekItems] };
+          const arr = [...s.cards];
+          arr.splice(i + 1, 0, copy);
+          setOpenCard(copy.id);
+          return { ...s, cards: arr };
+        }),
+      })),
   });
 
   /* ---- named designs / autosave ---- */
@@ -2705,12 +2915,16 @@ function App() {
   /* autosave the working design into its slot (debounced); skipped while viewing a shared link */
   useEffect(() => {
     if (sharedView || !currentId) return;
+    /* don't flash "Saving…" on first mount / page switch — only on real edits */
+    if (firstAutosave.current) { firstAutosave.current = false; return; }
+    setSaveState("saving");
     const t = setTimeout(() => {
       setDesigns((ds) => {
         const next = ds.map((d) => (d.id === currentId ? { ...d, config, override: override ?? "", updatedAt: nowMs() } : d));
         persistDesigns(next, currentId);
         return next;
       });
+      setSaveState("saved");
     }, 500);
     return () => clearTimeout(t);
   }, [config, override, currentId, sharedView]);
@@ -2881,6 +3095,9 @@ function App() {
         <div className="glp-bar__right">
           <button className="glp-smallbtn" type="button" title="Undo (⌘Z)" disabled={!canUndo} onClick={undo} style={{ padding: "8px 11px" }}>↶</button>
           <button className="glp-smallbtn" type="button" title="Redo (⇧⌘Z)" disabled={!canRedo} onClick={redo} style={{ padding: "8px 11px" }}>↷</button>
+          {!sharedView && currentId && (
+            <span className={"glp-save" + (saveState === "saved" ? " ok" : "")}>{saveState === "saving" ? "Saving…" : "Saved ✓"}</span>
+          )}
           <div className="glp-pages">
             <button className="glp-smallbtn glp-pages__btn" type="button" onClick={() => { setPagesOpen((o) => !o); setRenaming(false); }} title="Saved pages" style={{ padding: "8px 13px" }}>
               <span className="glp-pages__label">{sharedView ? "Shared design (unsaved)" : currentName}</span>
@@ -2957,7 +3174,17 @@ function App() {
               )}
 
               <NavSection id="theme" label="Theme Editor" openNav={openNav} setOpenNav={setOpenNav}>
-                <div className="glp-sub" style={{ marginTop: 4 }}>Global card style</div>
+                <div className="glp-sub" style={{ marginTop: 4 }}>Quick start</div>
+                <div className="glp-presets">
+                  {PRESETS.map((p) => (
+                    <button key={p.key} type="button" className="glp-preset" title={p.hint} onClick={() => applyPreset(p)}>
+                      <b>{p.label}</b>
+                      <span>{p.hint}</span>
+                    </button>
+                  ))}
+                </div>
+
+                <div className="glp-sub">Global card style</div>
                 <div className="glp-note" style={{ marginBottom: 12 }}>
                   The default look for every card section set to <b>Global</b>. Individual sections can override it by switching to <b>Custom</b>.
                 </div>
@@ -3168,6 +3395,7 @@ function App() {
                     onToggle={() => setOpenSection(openSection === section.id ? null : section.id)}
                     onMove={(dir) => moveSection(section.id, dir)}
                     onRemove={() => removeSection(section.id)}
+                    onDuplicate={() => duplicateSection(section.id)}
                     onChange={(next) => updateSection(section.id, next)}
                     cardOps={cardOpsFor(section.id)}
                     openCard={openCard}
@@ -3213,7 +3441,7 @@ function App() {
                 </Field>
               </NavSection>
             </div>
-            <Preview html={generated} mode={mode} setMode={setMode} device={device} setDevice={setDevice} liquidNote={hasLiquid} />
+            <Preview html={generated} mode={mode} setMode={setMode} device={device} setDevice={setDevice} liquidNote={hasLiquid} focusIndex={(() => { const fi = config.sections.findIndex((s) => s.id === openSection); return fi >= 0 ? fi : null; })()} />
           </>
         ) : (
           <>
