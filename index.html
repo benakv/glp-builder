@@ -183,7 +183,7 @@ const DEFAULT_LIQUID = {
   accents: ["green", "purple", "amber"],
 };
 
-const DEFAULT_SECTION_LAYOUT = { colMin: 258, gap: 20, autoH: true, cardMinH: 396, bento: false };
+const DEFAULT_SECTION_LAYOUT = { colMin: 258, gap: 20, autoH: true, cardMinH: 396, bento: false, spaceAbove: 36, divider: false };
 
 /* ---------------- text-columns section ----------------
    A section can be a grid of 1–4 evenly-distributed text columns, each with
@@ -958,7 +958,13 @@ ${cfg.headerImage.tint > 0 ? `  .bnk-herobg::after { content: ""; position: abso
 
   /* ---------- section heading CSS ---------- */
   const sectionCSS = `
-  .bnk-sec { margin-top: 36px; }
+  .bnk-sec { margin-top: 36px; position: relative; }
+  /* optional hairline divider, always centered in the space above the section */
+  .bnk-sec--divider::before {
+    content: ""; position: absolute; left: 0; right: 0;
+    top: calc(-1 * var(--divider-offset, 18px));
+    height: 1px; background: var(--card-divider);
+  }
   .bnk-section { margin: 0 0 20px; }
   .bnk-section__title {
     margin: 0 0 8px;
@@ -1001,13 +1007,15 @@ ${cfg.headerImage.tint > 0 ? `  .bnk-herobg::after { content: ""; position: abso
       const st = effStyle(sec);
       const cls =
         `bnk-sec bnk-sec-${i} bnk-sec--${sec.align === "left" ? "left" : "center"}` +
+        (sec.layout.divider ? " bnk-sec--divider" : "") +
         (!isCols && st.bar ? " bnk-sec--bar" : "") +
         (!isCols && st.mono ? " bnk-sec--mono" : "") +
         (!isCols && sec.layout.bento ? " bnk-sec--bento" : "");
       const titleFont = !isCols && st.mono ? F.mono : F.display;
       const titleTt = !isCols && st.mono ? "uppercase" : "none";
       const minh = sec.layout.autoH ? "auto" : `${sec.layout.cardMinH}px`;
-      const styleVars = `--card-radius: ${st.radius}px; --card-pad: ${densityPad(st.density)}; --title-size: ${densityTitle(
+      const space = sec.layout.spaceAbove == null ? 36 : sec.layout.spaceAbove;
+      const styleVars = `margin-top: ${space}px; --divider-offset: ${space / 2}px; --card-radius: ${st.radius}px; --card-pad: ${densityPad(st.density)}; --title-size: ${densityTitle(
         st.density
       )}; --title-font: ${titleFont}; --title-tt: ${titleTt}; --card-minh: ${minh};`;
       const heading =
@@ -2279,6 +2287,16 @@ function SectionEditor({ section, index, count, hideAccents, globalStyle, open, 
               ]}
             />
           </Field>
+
+          <div className="glp-sub">Spacing</div>
+          <Slider label="Space above section" value={section.layout.spaceAbove == null ? 36 : section.layout.spaceAbove} min={0} max={160} step={2} onChange={(v) => setLay({ spaceAbove: v })} />
+          <label className="glp-toggle" style={{ paddingTop: 0 }}>
+            <input type="checkbox" checked={!!section.layout.divider} onChange={(e) => setLay({ divider: e.target.checked })} />
+            <span className="glp-toggle__text">
+              <b>Divider line above</b>
+              <span>A hairline centered in the space above this section.</span>
+            </span>
+          </label>
 
           {isCols ? (
             <>
