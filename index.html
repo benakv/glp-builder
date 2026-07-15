@@ -214,9 +214,22 @@ const DEFAULT_SECTION_LAYOUT = { colMin: 258, gap: 20, autoH: true, cardMinH: 39
 const COLUMN_DEFAULTS = {
   heading: "Column heading",
   body: "A short line of supporting text for this column.",
-  cta: { enabled: false, label: "Learn more", href: "/", style: "plain" },
 };
-const makeColumn = (over) => ({ id: uid(), ...COLUMN_DEFAULTS, ...(over || {}), cta: { ...COLUMN_DEFAULTS.cta, ...((over && over.cta) || {}) } });
+const CTA_DEFAULTS = { label: "Learn more", href: "/", style: "plain" };
+const makeCta = (over) => {
+  const o = over || {};
+  return { label: o.label != null ? o.label : CTA_DEFAULTS.label, href: o.href != null ? o.href : CTA_DEFAULTS.href, style: o.style || CTA_DEFAULTS.style };
+};
+const makeColumn = (over) => {
+  const o = over || {};
+  const { cta, ctas, id, ...rest } = o;
+  /* migrate legacy single `cta` object → `ctas` array */
+  let list;
+  if (Array.isArray(ctas)) list = ctas.map(makeCta);
+  else if (cta && cta.enabled) list = [makeCta(cta)];
+  else list = [];
+  return { id: uid(), ...COLUMN_DEFAULTS, ...rest, ctas: list };
+};
 const DEFAULT_COLUMNS = () => [
   makeColumn({ heading: "Build", body: "Start with quickstarts and step-by-step guides." }),
   makeColumn({ heading: "Reference", body: "Full API reference for every endpoint and SDK." }),
@@ -588,12 +601,20 @@ function sectionColumns(sec) {
       const parts = [];
       if ((col.heading || "").trim()) parts.push(`      <h3 class="bnk-col__title">${esc(col.heading)}</h3>`);
       if ((col.body || "").trim()) parts.push(`      <p class="bnk-col__text">${esc(col.body)}</p>`);
-      const cta = col.cta || {};
-      if (cta.enabled && (cta.label || "").trim()) {
-        const cls = cta.style === "button" ? "bnk-col__cta bnk-col__cta--btn" : "bnk-col__cta";
-        parts.push(
-          `      <a class="${cls}" href="${esc(normPath(cta.href || "/"))}">${esc(cta.label)}<span class="rm-arrow" aria-hidden="true">&#8594;</span></a>`
-        );
+      const ctas = (col.ctas || []).filter((c) => (c.label || "").trim());
+      if (ctas.length) {
+        const links = ctas
+          .map((cta) => {
+            const cls =
+              cta.style === "filled"
+                ? "bnk-col__cta bnk-col__cta--filled"
+                : cta.style === "button"
+                ? "bnk-col__cta bnk-col__cta--btn"
+                : "bnk-col__cta";
+            return `        <a class="${cls}" href="${esc(normPath(cta.href || "/"))}">${esc(cta.label)}<span class="rm-arrow" aria-hidden="true">&#8594;</span></a>`;
+          })
+          .join("\n");
+        parts.push(`      <div class="bnk-col__ctas">\n${links}\n      </div>`);
       }
       return `    <!-- Column ${i + 1} -->\n    <div class="bnk-col">\n${parts.join("\n")}\n    </div>`;
     })
@@ -1021,18 +1042,26 @@ ${cfg.headerImage.tint > 0 ? `  .bnk-herobg::after { content: ""; position: abso
     font-size: 18px; letter-spacing: -0.01em; color: var(--bnk-heading) !important;
   }
   .bnk-col__text { margin: 0; font-size: 13.5px; line-height: 1.6; color: var(--bnk-ink-1) !important; }
+  .bnk-col__ctas { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin-top: 16px; }
+  .bnk-sec--center .bnk-col__ctas { justify-content: center; }
   .bnk-col__cta {
-    display: inline-flex; align-items: center; gap: 7px; margin-top: 14px;
+    display: inline-flex; align-items: center; gap: 7px;
     font-family: ${F.mono}; font-size: 13px; letter-spacing: 0.04em; text-decoration: none;
     color: var(--bnk-accent) !important;
   }
   .bnk-col__cta .rm-arrow { transition: transform 200ms ease; }
   .bnk-col__cta:hover .rm-arrow { transform: translateX(4px); }
   .bnk-col__cta--btn {
-    padding: 10px 18px; border-radius: 9px; margin-top: 16px;
+    padding: 10px 18px; border-radius: 9px;
     border: 1px solid color-mix(in srgb, var(--bnk-accent) 38%, transparent);
   }
   .bnk-col__cta--btn:hover { border-color: color-mix(in srgb, var(--bnk-accent) 65%, transparent); }
+  .bnk-col__cta--filled {
+    padding: 10px 18px; border-radius: 9px;
+    background: var(--bnk-accent); color: var(--bnk-cta-on) !important;
+    transition: opacity 200ms ease;
+  }
+  .bnk-col__cta--filled:hover { opacity: 0.88; }
 `;
 
   /* ---------- sections markup ---------- */
@@ -1672,6 +1701,12 @@ const APP_CSS = `
   .glp-add:hover { border-color: var(--accent); color: var(--accent); }
   .glp-add:disabled { opacity: .4; cursor: default; }
   .glp-add--sm { padding: 7px; font-size: 11px; border-radius: 8px; }
+  .glp-subcard {
+    border: 1px solid var(--line-2); border-radius: 10px;
+    padding: 12px 12px 4px; margin-bottom: 10px;
+    background: color-mix(in srgb, var(--ink-2) 3%, transparent);
+  }
+  .glp-hint { font-size: 12px; color: var(--ink-2); }
 
   .glp-note {
     font-size: 11.5px; color: var(--ink-3); line-height: 1.5;
@@ -1790,9 +1825,9 @@ const APP_CSS = `
 `;
 
 /* ---------- small reusable inputs ---------- */
-function Field({ label, children }) {
+function Field({ label, children, style }) {
   return (
-    <div className="glp-field">
+    <div className="glp-field" style={style}>
       <label>{label}</label>
       {children}
     </div>
@@ -2277,7 +2312,10 @@ function CardStyleControls({ style: st, setStyle }) {
 /* ---------- single text-column editor ---------- */
 function ColumnEditor({ column, index, count, open, onToggle, onChange, onMove, onRemove, onDuplicate }) {
   const set = (patch) => onChange({ ...column, ...patch });
-  const setCta = (patch) => onChange({ ...column, cta: { ...column.cta, ...patch } });
+  const ctas = column.ctas || [];
+  const setCta = (i, patch) => set({ ctas: ctas.map((c, j) => (j === i ? { ...c, ...patch } : c)) });
+  const addCta = () => set({ ctas: [...ctas, makeCta()] });
+  const removeCta = (i) => set({ ctas: ctas.filter((_, j) => j !== i) });
   return (
     <div className="glp-card">
       <div className="glp-card__head" onClick={onToggle}>
@@ -2300,35 +2338,38 @@ function ColumnEditor({ column, index, count, open, onToggle, onChange, onMove, 
           <Field label="Body text (blank to hide)">
             <textarea className="glp-textarea" value={column.body} onChange={(e) => set({ body: e.target.value })} />
           </Field>
-          <label className="glp-toggle" style={{ paddingTop: 0 }}>
-            <input type="checkbox" checked={!!column.cta.enabled} onChange={(e) => setCta({ enabled: e.target.checked })} />
-            <span className="glp-toggle__text">
-              <b>Call to action</b>
-              <span>A link or button at the bottom of this column.</span>
-            </span>
-          </label>
-          {column.cta.enabled && (
-            <>
-              <div className="glp-row2">
-                <Field label="CTA text">
-                  <input className="glp-input" value={column.cta.label} onChange={(e) => setCta({ label: e.target.value })} />
-                </Field>
-                <Field label="CTA link">
-                  <input className="glp-input" value={column.cta.href} onChange={(e) => setCta({ href: normPath(e.target.value) })} placeholder="/guides" />
-                </Field>
+          <Field label="Calls to action">
+            {ctas.length === 0 && (
+              <p className="glp-hint" style={{ margin: "0 0 8px" }}>No CTAs yet. Add one or more links/buttons below.</p>
+            )}
+            {ctas.map((cta, i) => (
+              <div key={i} className="glp-subcard">
+                <div className="glp-row2">
+                  <Field label="CTA text">
+                    <input className="glp-input" value={cta.label} onChange={(e) => setCta(i, { label: e.target.value })} />
+                  </Field>
+                  <Field label="CTA link">
+                    <input className="glp-input" value={cta.href} onChange={(e) => setCta(i, { href: normPath(e.target.value) })} placeholder="/guides" />
+                  </Field>
+                </div>
+                <div style={{ display: "flex", alignItems: "flex-end", gap: 10 }}>
+                  <Field label="CTA style" style={{ flex: 1 }}>
+                    <Seg
+                      value={cta.style === "button" ? "button" : cta.style === "filled" ? "filled" : "plain"}
+                      onChange={(v) => setCta(i, { style: v })}
+                      options={[
+                        { value: "plain", label: "Plain link" },
+                        { value: "button", label: "Outline" },
+                        { value: "filled", label: "Filled" },
+                      ]}
+                    />
+                  </Field>
+                  <button className="glp-iconbtn" title="Remove CTA" type="button" onClick={() => removeCta(i)}>&#10005;</button>
+                </div>
               </div>
-              <Field label="CTA style">
-                <Seg
-                  value={column.cta.style === "button" ? "button" : "plain"}
-                  onChange={(v) => setCta({ style: v })}
-                  options={[
-                    { value: "plain", label: "Plain link" },
-                    { value: "button", label: "Button" },
-                  ]}
-                />
-              </Field>
-            </>
-          )}
+            ))}
+            <button className="glp-add" type="button" onClick={addCta}>+ Add CTA</button>
+          </Field>
         </div>
       )}
     </div>
@@ -2374,7 +2415,7 @@ function SectionEditor({ section, index, count, hideAccents, globalStyle, open, 
       if (section.columns.length >= 4) return;
       const i = section.columns.findIndex((c) => c.id === id);
       if (i < 0) return;
-      const copy = { ...section.columns[i], id: uid(), cta: { ...section.columns[i].cta } };
+      const copy = { ...section.columns[i], id: uid(), ctas: (section.columns[i].ctas || []).map((c) => ({ ...c })) };
       const arr = [...section.columns];
       arr.splice(i + 1, 0, copy);
       setOpenCard(copy.id);
@@ -2825,7 +2866,7 @@ function App() {
         style: { ...src.style },
         layout: { ...src.layout },
         liquid: { ...src.liquid, accents: [...src.liquid.accents] },
-        columns: src.columns.map((col) => ({ ...col, id: uid(), cta: { ...col.cta } })),
+        columns: src.columns.map((col) => ({ ...col, id: uid(), ctas: (col.ctas || []).map((c) => ({ ...c })) })),
         cards: src.cards.map((k) => ({ ...k, id: uid(), peekItems: [...k.peekItems] })),
       };
       const arr = [...c.sections];
