@@ -459,7 +459,14 @@ function loadInitialState() {
   } catch (e) {}
   if (!Array.isArray(designs)) designs = [];
 
-  /* a shared #c= link opens unsaved, regardless of saved pages */
+  /* a short-link path (/g/<code>) opens a stored shared design, fetched
+     asynchronously after boot — mark it pending and show the default meanwhile */
+  try {
+    const pm = window.location.pathname.match(/\/g\/([a-z0-9]{4,16})/i);
+    if (pm) return { config: DEFAULT_CONFIG, override: null, designs, currentId: null, sharedView: true, pendingShare: pm[1].toLowerCase() };
+  } catch (e) {}
+
+  /* a shared #c= link carries the whole config inline (older links) */
   try {
     const m = window.location.hash.match(/#c=([A-Za-z0-9+/=]+)/);
     if (m) return { config: migrateConfig(decodeConfig(m[1])), override: null, designs, currentId: null, sharedView: true };
@@ -1707,6 +1714,15 @@ const APP_CSS = `
     background: color-mix(in srgb, var(--ink-2) 3%, transparent);
   }
   .glp-hint { font-size: 12px; color: var(--ink-2); }
+  .glp-shareload {
+    position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center;
+    background: color-mix(in srgb, var(--bg) 72%, transparent); backdrop-filter: blur(3px);
+  }
+  .glp-shareload__box {
+    padding: 14px 22px; border-radius: 12px; border: 1px solid var(--line-2);
+    background: var(--panel); color: var(--ink);
+    font-family: 'Space Mono', monospace; font-size: 13px; letter-spacing: .04em;
+  }
 
   .glp-note {
     font-size: 11.5px; color: var(--ink-3); line-height: 1.5;
@@ -2749,6 +2765,7 @@ function App() {
   const [device, setDevice] = useState("desktop");
   const [copied, setCopied] = useState(false);
   const [shared, setShared] = useState(false);
+  const [loadingShare, setLoadingShare] = useState(!!boot.current.pendingShare);
   const [saveState, setSaveState] = useState("saved");
   const firstAutosave = useRef(true);
   const [histVer, setHistVer] = useState(0);
@@ -3086,26 +3103,66 @@ function App() {
   const share = useCallback(async () => {
     const encoded = encodeConfig(config);
     let payload = encoded;
-    try {
-      if (/^https?:/.test(window.location.protocol)) {
-        /* copy a shareable URL without hijacking this tab's address bar,
-           so the author's page keeps autosaving under its own slot */
-        payload = window.location.origin + window.location.pathname + "#c=" + encoded;
+    const onWeb = (() => { try { return /^https?:/.test(window.location.protocol); } catch (e) { return false; } })();
+    if (onWeb) {
+      const base = window.location.origin + "/";
+      /* the long inline link is the fallback if the short-link service is down */
+      const inlineLink = base + "#c=" + encoded;
+      payload = inlineLink;
+      setShared("working");
+      try {
+        const res = await fetch("/.netlify/functions/share", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(config),
+        });
+        if (res.ok) {
+          const { code } = await res.json();
+          if (code) payload = base + "g/" + code;
+        }
+      } catch (e) {
+        /* offline / local file / function unavailable — keep the inline link */
       }
-    } catch (e) {
-      /* sandboxed — fall back to copying the raw config string */
     }
     if (await copyText(payload)) {
       setShared(true);
       setTimeout(() => setShared(false), 1800);
+    } else {
+      setShared(false);
     }
   }, [config]);
+
+  /* a /g/<code> link: fetch the stored design and load it after boot */
+  useEffect(() => {
+    const code = boot.current.pendingShare;
+    if (!code) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/.netlify/functions/share?id=" + encodeURIComponent(code));
+        if (res.ok) {
+          const cfg = migrateConfig(await res.json());
+          if (!cancelled) { setConfig(cfg); setOpenSection(cfg.sections[0].id); }
+        }
+      } catch (e) {
+        /* leave the default page in place if the fetch fails */
+      }
+      if (!cancelled) setLoadingShare(false);
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   const hasLiquid = config.sections.some((s) => s.type !== "columns" && s.source === "liquid");
 
   return (
     <div className="glp">
       <style>{APP_CSS}</style>
+
+      {loadingShare && (
+        <div className="glp-shareload">
+          <div className="glp-shareload__box">Loading shared design…</div>
+        </div>
+      )}
 
       <div className="glp-bar">
         <div className="glp-logo">
@@ -3172,8 +3229,8 @@ function App() {
               </>
             )}
           </div>
-          <button className={"glp-smallbtn" + (shared ? " done" : "")} onClick={share} type="button" style={{ padding: "8px 13px" }}>
-            {shared ? "✓ Link copied" : "Share link"}
+          <button className={"glp-smallbtn" + (shared === true ? " done" : "")} onClick={share} type="button" disabled={shared === "working"} style={{ padding: "8px 13px" }}>
+            {shared === "working" ? "Creating link…" : shared === true ? "✓ Link copied" : "Share link"}
           </button>
           <button className="glp-smallbtn" onClick={download} type="button" style={{ padding: "8px 13px" }}>
             Download .html

@@ -1,0 +1,9 @@
+{
+  "name": "glp-builder",
+  "version": "1.0.0",
+  "private": true,
+  "description": "GLP Builder — visual editor for ReadMe Enterprise Global Landing Pages",
+  "dependencies": {
+    "@netlify/blobs": "^10.7.9"
+  }
+}

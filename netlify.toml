@@ -1,3 +1,15 @@
-# GLP Builder — static site, no build step
+# GLP Builder — static site + one function for short share links
 [build]
   publish = "."
+
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
+
+# Short-link paths (/g/<code>) serve the app; the app reads the code and
+# fetches the design from the share function. Netlify handles the automatic
+# /.netlify/functions/* routing before this rule, so the function is safe.
+[[redirects]]
+  from = "/g/*"
+  to = "/index.html"
+  status = 200
