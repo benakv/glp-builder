@@ -35,10 +35,11 @@ preview — then copy the generated snippet into
   recent changes, including accidental section or card deletions.
 - **One-color mode** — a top **Colors** section can force a single accent
   across every card, overriding the per-card colors.
-- **Shareable links** — the Share button encodes your whole design into a
-  URL (`#c=…`); anyone opening the link sees your exact configuration as an
-  unsaved page they can add to their own list with one click. Links saved with
-  older versions are migrated automatically.
+- **Shareable links** — the Share button stores your design and copies a
+  short `…/g/<code>` URL (nice for Slack). Anyone opening it sees your exact
+  configuration as an unsaved page they can add to their own list with one
+  click. Older inline links (`#c=…`) still open, and if the short-link
+  service is unreachable Share falls back to an inline link automatically.
 - Native ReadMe **dark/light/system theming** via `data-color-mode` — no JS
   theme hacks
 - 4 font pairings **plus a "Match ReadMe" option** that inherits the hub's
@@ -57,14 +58,18 @@ preview — then copy the generated snippet into
 4. Deploy. Every push to `main` redeploys automatically, and pull requests
    get deploy previews.
 
-No build step exists — the app is a single self-contained `index.html`
-(React + Babel from CDN, compiled in the browser). To update the app, just
-edit/replace `index.html` and push.
+The app itself is a single self-contained `index.html` (React + Babel from
+CDN, compiled in the browser). Short share links are backed by one Netlify
+function (`netlify/functions/share.mjs`) storing designs in **Netlify
+Blobs** — Netlify provisions this automatically, so no keys or extra setup
+are needed; `package.json` just pins `@netlify/blobs` for the function
+bundle. To update the app, edit `index.html` and push.
 
 ## Notes
 
-- Share links carry the design in the URL fragment; nothing is stored
-  server-side. Unsaved work is lost on refresh unless you use **Share link**,
-  **Download .html**, or **Copy HTML**.
+- Short share links store the design in Netlify Blobs, keyed by the code in
+  the URL. Older inline `#c=…` links carry the design in the URL fragment
+  (nothing stored). Either way, unsaved work is lost on refresh unless you
+  use **Share link**, **Download .html**, or **Copy HTML**.
 - In Liquid mode the in-app preview shows 3 sample projects; ReadMe renders
   your real child projects server-side once the code is pasted into the dash.
