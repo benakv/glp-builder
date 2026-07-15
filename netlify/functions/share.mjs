@@ -60,7 +60,9 @@ export async function handle(req, store) {
   return json({ error: "method not allowed" }, 405);
 }
 
-export default async (req) => handle(req, getStore("glp-shares"));
+/* strong consistency so a freshly shared link is readable immediately
+   (the default eventual mode can 404 for up to ~a minute after the write) */
+export default async (req) => handle(req, getStore({ name: "glp-shares", consistency: "strong" }));
 
 /* exported for tests */
 export const _internals = { makeCode, CODE_CHARS, CODE_RE };
